@@ -17,7 +17,8 @@ const (
 	discoveryProbe   = "who is jellyfinserver?"
 	defaultListen    = ":8096"
 	defaultPlexURL   = "http://127.0.0.1:32400"
-	defaultUserName  = "plex"
+	defaultUserName  = "jellyfin"
+	defaultPassword  = "jellyfin"
 	discoveryBuffer  = 1024
 )
 
@@ -35,8 +36,8 @@ func main() {
 		log.Fatalf("PLEX_URL: %v", err)
 	}
 	server, err := NewServer(NewPlex(plexURL, requireEnv("PLEX_TOKEN")), Config{
-		UserName: cmp.Or(os.Getenv("JELLYFIN_USER"), defaultUserName),
-		Password: requireEnv("JELLYFIN_PASSWORD"),
+		UserName: cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName),
+		Password: cmp.Or(os.Getenv("JELLYFIN_PASSWORD"), defaultPassword),
 	})
 	if err != nil {
 		log.Fatalf("plex: %v", err)

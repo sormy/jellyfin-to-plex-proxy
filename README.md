@@ -24,8 +24,8 @@ From [Releases](https://github.com/sormy/jellyfin-to-plex-proxy/releases/latest)
 | Variable            | Default                  | Meaning                     |
 | ------------------- | ------------------------ | --------------------------- |
 | `PLEX_TOKEN`        | required                 | the Plex owner's token      |
-| `JELLYFIN_PASSWORD` | required                 | password apps sign in with  |
-| `JELLYFIN_USER`     | `plex`                   | user name apps sign in with |
+| `JELLYFIN_USERNAME` | `jellyfin`               | user name apps sign in with |
+| `JELLYFIN_PASSWORD` | `jellyfin`               | password apps sign in with  |
 | `PLEX_URL`          | `http://127.0.0.1:32400` | Plex Media Server           |
 | `LISTEN`            | `:8096`                  | Jellyfin API address        |
 
@@ -65,8 +65,7 @@ Write the env file — this copies the token without printing it — and start:
 
 ```sh
 prefs='/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Preferences.xml'
-{ sed -n 's/.*PlexOnlineToken="\([^"]*\)".*/PLEX_TOKEN=\1/p' "$prefs"; echo 'JELLYFIN_PASSWORD=<password>'; } |
-  install -m 600 /dev/stdin /etc/jellyfin-to-plex-proxy.env
+sed -n 's/.*PlexOnlineToken="\([^"]*\)".*/PLEX_TOKEN=\1/p' "$prefs" | install -m 600 /dev/stdin /etc/jellyfin-to-plex-proxy.env
 systemctl enable --now jellyfin-to-plex-proxy
 ```
 
@@ -77,7 +76,7 @@ systemctl enable --now jellyfin-to-plex-proxy
 ```sh
 chmod +x jellyfin-to-plex-proxy-macos-*
 xattr -d com.apple.quarantine jellyfin-to-plex-proxy-macos-*
-PLEX_TOKEN=<token> JELLYFIN_PASSWORD=<password> ./jellyfin-to-plex-proxy-macos-arm64
+PLEX_TOKEN=<token> ./jellyfin-to-plex-proxy-macos-arm64
 ```
 
 ### Windows
@@ -85,7 +84,7 @@ PLEX_TOKEN=<token> JELLYFIN_PASSWORD=<password> ./jellyfin-to-plex-proxy-macos-a
 In PowerShell:
 
 ```powershell
-$env:PLEX_TOKEN = "<token>"; $env:JELLYFIN_PASSWORD = "<password>"
+$env:PLEX_TOKEN = "<token>"
 .\jellyfin-to-plex-proxy-windows-amd64.exe
 ```
 
@@ -94,8 +93,8 @@ Allow it through the firewall when Windows asks, or apps cannot reach it.
 ## Connect
 
 In Swiftfin, add the server — found on the LAN, or at `http://<host>:8096` — then add a user:
-`JELLYFIN_USER` and `JELLYFIN_PASSWORD`. Sign-in survives restarts; changing the password signs
-every app out.
+`jellyfin` / `jellyfin` unless set otherwise. Sign-in survives restarts; changing the user name or
+password signs every app out.
 
 ## Build
 
@@ -113,8 +112,9 @@ downloads on first run. Go 1.22 no longer receives security fixes.
 CGO_ENABLED=0 go test ./...
 ```
 
-Runs the scenarios against an in-memory fake Plex. With `JELLYFIN_URL=http://<host>:8096` and
-`JELLYFIN_PASSWORD` set, the same scenarios run against a live proxy and its Plex.
+Runs the scenarios against an in-memory fake Plex. With `JELLYFIN_URL=http://<host>:8096` set, and
+`JELLYFIN_USERNAME` and `JELLYFIN_PASSWORD` if not the defaults, the same scenarios run against a
+live proxy and its Plex.
 
 > The live run changes watch state on one series, `testSeries` in `api_test.go`, and restores its
 > watched flags and resume points. Play counts, last-viewed dates and Plex's history do not come
@@ -146,6 +146,8 @@ stream URL is valid only with the play session the proxy signed for that item.
 ## Limits
 
 - One user, the Plex owner. Plex managed users are not exposed.
+- Anyone on the network who knows the user name and password gets the owner's library: change the
+  defaults where the network is not yours alone.
 - Direct play only, no transcoding: the app must decode the file. Swiftfin's default player does.
 - Movie and show libraries only: no music, photos or Live TV.
 - Favorites are acknowledged, not stored — Plex has none.

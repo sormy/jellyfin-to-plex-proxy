@@ -1,5 +1,5 @@
 // Scenarios over the Jellyfin API. They run against the proxy wired to a fake
-// Plex, or, with JELLYFIN_URL and JELLYFIN_PASSWORD set, against a live proxy
+// Plex, or, with JELLYFIN_URL set, against a live proxy
 // and the Plex behind it, changing watch state on a test series and restoring it.
 package main
 
@@ -46,7 +46,7 @@ func newFakeServer(t *testing.T) *Server {
 }
 
 func newClient(t *testing.T) *client {
-	base, password := os.Getenv("JELLYFIN_URL"), os.Getenv("JELLYFIN_PASSWORD")
+	base, password := os.Getenv("JELLYFIN_URL"), cmp.Or(os.Getenv("JELLYFIN_PASSWORD"), defaultPassword)
 	c := &client{t: t, base: base, live: base != ""}
 	if !c.live {
 		proxy := httptest.NewServer(newFakeServer(t))
@@ -55,7 +55,7 @@ func newClient(t *testing.T) *client {
 	}
 	var auth AuthenticationResult
 	c.expect(http.MethodPost, "/Users/AuthenticateByName", nil,
-		AuthenticateByName{Username: cmp.Or(os.Getenv("JELLYFIN_USER"), defaultUserName), Pw: password},
+		AuthenticateByName{Username: cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName), Pw: password},
 		http.StatusOK, &auth)
 	c.token = auth.AccessToken
 	return c
@@ -203,7 +203,7 @@ func TestAuthentication(t *testing.T) {
 	c := newClient(t)
 	anonymous := &client{t: t, base: c.base}
 	anonymous.expect(http.MethodPost, "/Users/AuthenticateByName", nil,
-		AuthenticateByName{Username: defaultUserName, Pw: "wrong"}, http.StatusUnauthorized, nil)
+		AuthenticateByName{Username: cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName), Pw: "wrong"}, http.StatusUnauthorized, nil)
 	anonymous.expect(http.MethodGet, "/Users/Me", nil, nil, http.StatusUnauthorized, nil)
 	var me User
 	c.expect(http.MethodGet, "/Users/Me", nil, nil, http.StatusOK, &me)
