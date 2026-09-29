@@ -334,12 +334,20 @@ func (s *Server) groupingOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) virtualFolders(w http.ResponseWriter, r *http.Request) {
-	views, err := s.libraries()
+	sections, err := s.plex.Sections()
 	folders := []VirtualFolder{}
-	for _, view := range views {
-		folders = append(folders, VirtualFolder{
-			Name: view.Name, ItemId: view.Id, CollectionType: view.CollectionType, Locations: []string{},
-		})
+	for _, section := range sections {
+		collection, ok := collectionTypes[section.Type]
+		if !ok {
+			continue
+		}
+		folder := VirtualFolder{
+			Name: section.Title, ItemId: EncodeID(KindLibrary, section.Key), CollectionType: collection, Locations: []string{},
+		}
+		for _, location := range section.Location {
+			folder.Locations = append(folder.Locations, location.Path)
+		}
+		folders = append(folders, folder)
 	}
 	respond(w, folders, err)
 }

@@ -71,6 +71,9 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 	if tag := imageTag(m.Art); tag != "" {
 		item.BackdropImageTags = []string{tag}
 	}
+	if m.LibrarySectionID > 0 {
+		item.ParentId = EncodeID(KindLibrary, strconv.Itoa(m.LibrarySectionID))
+	}
 	switch m.Type {
 	case "movie":
 		item.MediaType = "Video"
@@ -87,12 +90,14 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 		item.IndexNumber = intPointer(m.Index)
 		item.SeriesId = EncodeID(KindItem, m.ParentRatingKey)
 		item.SeriesName = m.ParentTitle
+		item.ParentId = item.SeriesId
 		item.PrimaryImageAspectRatio = posterAspectRatio
 	case "episode":
 		item.MediaType = "Video"
 		item.IndexNumber = intPointer(m.Index)
 		item.ParentIndexNumber = intPointer(m.ParentIndex)
 		item.SeasonId = EncodeID(KindItem, m.ParentRatingKey)
+		item.ParentId = item.SeasonId
 		item.SeasonName = m.ParentTitle
 		item.SeriesId = EncodeID(KindItem, m.GrandparentRatingKey)
 		item.SeriesName = m.GrandparentTitle
@@ -106,6 +111,7 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 	item.MediaSources = toMediaSources(item.Id, m)
 	if len(item.MediaSources) > 0 {
 		item.MediaStreams = item.MediaSources[0].MediaStreams
+		item.Path = item.MediaSources[0].Path
 	}
 	return item, true
 }
@@ -153,6 +159,7 @@ func toMediaSources(itemID string, m PlexMetadata) []MediaSource {
 			Id:                         sourceID,
 			ETag:                       sourceID,
 			Name:                       strings.TrimSpace(media.VideoResolution + " " + strings.ToUpper(media.VideoCodec)),
+			Path:                       part.File,
 			Protocol:                   "File",
 			Type:                       "Default",
 			Container:                  part.Container,

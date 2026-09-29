@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +39,7 @@ type PlexStream struct {
 type PlexPart struct {
 	ID        int          `json:"id"`
 	Key       string       `json:"key"`
+	File      string       `json:"file"`
 	Size      int64        `json:"size"`
 	Container string       `json:"container"`
 	Duration  int64        `json:"duration"`
@@ -77,6 +79,7 @@ type PlexMetadata struct {
 	GrandparentRatingKey  string      `json:"grandparentRatingKey"`
 	ParentTitle           string      `json:"parentTitle"`
 	GrandparentTitle      string      `json:"grandparentTitle"`
+	LibrarySectionID      int         `json:"librarySectionID"`
 	Thumb                 string      `json:"thumb"`
 	Art                   string      `json:"art"`
 	GrandparentThumb      string      `json:"grandparentThumb"`
@@ -86,13 +89,19 @@ type PlexMetadata struct {
 }
 
 type PlexDirectory struct {
-	Key   string `json:"key"`
-	Type  string `json:"type"`
-	Title string `json:"title"`
+	Key      string         `json:"key"`
+	Type     string         `json:"type"`
+	Title    string         `json:"title"`
+	Location []PlexLocation `json:"Location"`
+}
+
+type PlexLocation struct {
+	Path string `json:"path"`
 }
 
 type PlexContainer struct {
 	Size              int             `json:"size"`
+	LibrarySectionID  int             `json:"librarySectionID"`
 	TotalSize         int             `json:"totalSize"`
 	Offset            int             `json:"offset"`
 	MachineIdentifier string          `json:"machineIdentifier"`
@@ -176,7 +185,12 @@ func (p *Plex) get(path string, query url.Values, header http.Header) (PlexConta
 	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
 		return PlexContainer{}, fmt.Errorf("plex %s: %w", path, err)
 	}
-	return envelope.MediaContainer, nil
+	// Plex names the section once per listing, not on each item.
+	c := envelope.MediaContainer
+	for i := range c.Metadata {
+		c.Metadata[i].LibrarySectionID = cmp.Or(c.Metadata[i].LibrarySectionID, c.LibrarySectionID)
+	}
+	return c, nil
 }
 
 func (p *Plex) call(path string, query url.Values, header http.Header) error {

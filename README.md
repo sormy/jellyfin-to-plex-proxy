@@ -1,8 +1,8 @@
 # jellyfin-to-plex-proxy
 
-Serves a Plex library over the Jellyfin API, so Jellyfin apps — Swiftfin on Apple TV, iPhone and
-iPad — browse and play it. Plex stays the only database: watch state, resume points and new media
-are Plex's, with nothing to sync.
+Serves a Plex library over the Jellyfin API, so Jellyfin apps — Swiftfin and Infuse on Apple TV,
+iPhone and iPad — browse and play it. Plex stays the only database: watch state, resume points and
+new media are Plex's, with nothing to sync.
 
 One small static binary. It listens where Jellyfin would (`8096`, discovery on UDP `7359`) and
 talks to Plex over its HTTP API.
@@ -92,9 +92,14 @@ Allow it through the firewall when Windows asks, or apps cannot reach it.
 
 ## Connect
 
-In Swiftfin, add the server — found on the LAN, or at `http://<host>:8096` — then add a user:
-`jellyfin` / `jellyfin` unless set otherwise. Sign-in survives restarts; changing the user name or
-password signs every app out.
+Add the server — found on the LAN, or at `http://<host>:8096` — and sign in: `jellyfin` /
+`jellyfin` unless set otherwise. Sign-in survives restarts; changing the user name or password signs
+every app out.
+
+| App      | Add it as        | Setting                                     |
+| -------- | ---------------- | ------------------------------------------- |
+| Swiftfin | a server         | —                                           |
+| Infuse   | a Jellyfin share | Library Mode off (Direct Mode), the default |
 
 ## Build
 

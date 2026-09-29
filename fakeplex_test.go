@@ -53,6 +53,7 @@ func newFakePlex(t *testing.T) *httptest.Server {
 func (p *fakePlex) add(m PlexMetadata) {
 	p.clock += 100
 	m.AddedAt = p.clock
+	m.LibrarySectionID = map[bool]int{true: 1, false: 2}[m.Type == "movie"]
 	m.Thumb = fmt.Sprintf("/library/metadata/%s/thumb/%d", m.RatingKey, p.clock)
 	if m.Type != "episode" {
 		m.Art = fmt.Sprintf("/library/metadata/%s/art/%d", m.RatingKey, p.clock)
@@ -64,6 +65,7 @@ func (p *fakePlex) add(m PlexMetadata) {
 func fakeMedia(partID int, durationMs int64) []PlexMedia {
 	return []PlexMedia{{Duration: durationMs, Bitrate: 4000, VideoCodec: "hevc", VideoResolution: "1080", Part: []PlexPart{{
 		ID: partID, Key: fmt.Sprintf("/library/parts/%d/1/file.mkv", partID), Size: fakePartFileSize,
+		File:      fmt.Sprintf("/media/%d.mkv", partID),
 		Container: "mkv", Duration: durationMs,
 		Stream: []PlexStream{
 			{StreamType: 1, Index: 0, Codec: "hevc", Width: 1920, Height: 1080},
@@ -119,9 +121,9 @@ func (p *fakePlex) routes() {
 	})
 	p.mux.HandleFunc("GET /library/sections", func(w http.ResponseWriter, r *http.Request) {
 		p.write(w, PlexContainer{Directory: []PlexDirectory{
-			{Key: fakeMovieSection, Type: "movie", Title: "Movies"},
-			{Key: fakeShowSection, Type: "show", Title: "TV Shows"},
-			{Key: fakeMusicSection, Type: "artist", Title: "Music"},
+			{Key: fakeMovieSection, Type: "movie", Title: "Movies", Location: []PlexLocation{{Path: "/media/movies"}}},
+			{Key: fakeShowSection, Type: "show", Title: "TV Shows", Location: []PlexLocation{{Path: "/media/tv"}}},
+			{Key: fakeMusicSection, Type: "artist", Title: "Music", Location: []PlexLocation{{Path: "/media/music"}}},
 		}})
 	})
 	p.mux.HandleFunc("GET /library/sections/{section}/all", func(w http.ResponseWriter, r *http.Request) {

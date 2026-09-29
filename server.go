@@ -73,6 +73,8 @@ func (s *Server) user() User {
 		},
 		Policy: UserPolicy{
 			EnableMediaPlayback:      true,
+			EnableAllFolders:         true,
+			EnableRemoteAccess:       true,
 			AuthenticationProviderId: authenticationProvider,
 			PasswordResetProviderId:  passwordResetProvider,
 		},
@@ -202,6 +204,7 @@ func (s *Server) routes() {
 	s.private("GET /Localization/Cultures", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, cultures) })
 	for _, pattern := range []string{
 		"GET /Items/{id}/Similar", "GET /Videos/{id}/AdditionalParts", "GET /Persons", "GET /LiveTv/Programs/Recommended",
+		"GET /MediaSegments/{id}",
 	} {
 		s.private(pattern, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, ItemsResult{Items: []Item{}}) })
 	}

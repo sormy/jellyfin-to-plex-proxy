@@ -230,7 +230,8 @@ func TestAuthentication(t *testing.T) {
 	// a policy lacking its provider ids.
 	for _, user := range []User{c.signedIn, me} {
 		policy := user.Policy
-		if !policy.EnableMediaPlayback || policy.IsAdministrator || policy.AuthenticationProviderId == "" || policy.PasswordResetProviderId == "" {
+		if !policy.EnableMediaPlayback || !policy.EnableAllFolders || policy.IsAdministrator ||
+			policy.AuthenticationProviderId == "" || policy.PasswordResetProviderId == "" {
 			t.Errorf("policy %+v", policy)
 		}
 	}
@@ -356,8 +357,12 @@ func TestSeriesNavigation(t *testing.T) {
 	if len(episodes.Items) == 0 {
 		t.Fatal("no episodes")
 	}
+	// Infuse walks ParentId up to the library.
+	if season.ParentId != series.Id || series.ParentId == "" || c.item(series.ParentId).Type != "CollectionFolder" {
+		t.Errorf("parents: season %q, series %q", season.ParentId, series.ParentId)
+	}
 	for _, episode := range episodes.Items {
-		if episode.SeasonId != season.Id || episode.SeriesId != series.Id || episode.IndexNumber == nil {
+		if episode.ParentId != season.Id || episode.SeasonId != season.Id || episode.SeriesId != series.Id || episode.IndexNumber == nil {
 			t.Errorf("episode %+v", episode)
 		}
 	}
@@ -454,7 +459,8 @@ func TestImages(t *testing.T) {
 func TestPlayback(t *testing.T) {
 	c := newClient(t)
 	episode := c.item(c.episodes(c.series())[0].Id)
-	if len(episode.MediaSources) == 0 || len(episode.MediaStreams) == 0 || episode.MediaType != "Video" {
+	if len(episode.MediaSources) == 0 || len(episode.MediaStreams) == 0 || episode.MediaType != "Video" ||
+		episode.Path == "" || episode.MediaSources[0].Path == "" {
 		t.Fatalf("episode %+v", episode)
 	}
 	var info PlaybackInfo
@@ -654,7 +660,9 @@ func TestHomeRowsAndUserRoutes(t *testing.T) {
 	var folders []VirtualFolder
 	c.expect(http.MethodGet, "/Library/VirtualFolders", nil, nil, http.StatusOK, &folders)
 	mediaFolders := c.items("/Library/MediaFolders", nil)
+	// Infuse treats a library without locations as empty.
 	if len(folders) != len(views.Items) || folders[0].ItemId != views.Items[0].Id || folders[0].CollectionType == "" ||
+		len(folders[0].Locations) == 0 ||
 		len(mediaFolders.Items) != len(views.Items) {
 		t.Errorf("virtual folders %+v, media folders %d", folders, len(mediaFolders.Items))
 	}
@@ -765,7 +773,7 @@ func TestStubs(t *testing.T) {
 	id := c.series().Id
 	for _, path := range []string{
 		"/Items/" + id + "/LocalTrailers", "/Items/" + id + "/SpecialFeatures", "/Items/" + id + "/Similar",
-		"/Videos/" + id + "/AdditionalParts", "/Persons", "/Items/Filters", "/Items/Filters2",
+		"/Videos/" + id + "/AdditionalParts", "/Persons", "/Items/Filters", "/Items/Filters2", "/MediaSegments/" + id,
 	} {
 		c.expect(http.MethodGet, path, nil, nil, http.StatusOK, nil)
 	}

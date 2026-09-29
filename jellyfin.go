@@ -92,6 +92,7 @@ type MediaSource struct {
 	Id                         string        `json:"Id"`
 	ETag                       string        `json:"ETag"`
 	Name                       string        `json:"Name,omitempty"`
+	Path                       string        `json:"Path,omitempty"`
 	Protocol                   string        `json:"Protocol"`
 	Type                       string        `json:"Type"`
 	Container                  string        `json:"Container,omitempty"`
@@ -113,6 +114,8 @@ type Item struct {
 	Name                    string            `json:"Name"`
 	SortName                string            `json:"SortName,omitempty"`
 	Type                    string            `json:"Type"`
+	Path                    string            `json:"Path,omitempty"`
+	ParentId                string            `json:"ParentId,omitempty"`
 	IsFolder                bool              `json:"IsFolder"`
 	MediaType               string            `json:"MediaType,omitempty"`
 	CollectionType          string            `json:"CollectionType,omitempty"`
@@ -150,7 +153,6 @@ type NameID struct {
 	Id   string `json:"Id"`
 }
 
-// VirtualFolder describes a library; Locations stay empty to keep server paths private.
 type VirtualFolder struct {
 	Name           string   `json:"Name"`
 	ItemId         string   `json:"ItemId"`
@@ -195,10 +197,13 @@ type User struct {
 }
 
 // UserPolicy gates client features: Swiftfin hides Play without
-// EnableMediaPlayback, and fails to decode without the provider ids.
+// EnableMediaPlayback and fails to decode without the provider ids; Infuse
+// shows no library without EnableAllFolders.
 type UserPolicy struct {
 	IsAdministrator          bool   `json:"IsAdministrator"`
 	EnableMediaPlayback      bool   `json:"EnableMediaPlayback"`
+	EnableAllFolders         bool   `json:"EnableAllFolders"`
+	EnableRemoteAccess       bool   `json:"EnableRemoteAccess"`
 	EnableLiveTvManagement   bool   `json:"EnableLiveTvManagement"`
 	AuthenticationProviderId string `json:"AuthenticationProviderId"`
 	PasswordResetProviderId  string `json:"PasswordResetProviderId"`
