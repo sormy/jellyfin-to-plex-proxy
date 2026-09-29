@@ -101,6 +101,14 @@ every app out.
 | Swiftfin | a server         | —                                           |
 | Infuse   | a Jellyfin share | Library Mode off (Direct Mode), the default |
 
+Tested with:
+
+- Swiftfin on Apple TV
+- Swiftfin on macOS
+- Infuse on Apple TV, Direct Mode
+
+Other Jellyfin apps may call endpoints the proxy lacks: they log as `404` in the journal.
+
 ## Build
 
 ```sh
