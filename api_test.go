@@ -322,6 +322,52 @@ func TestSeriesNavigation(t *testing.T) {
 	}
 }
 
+// TestSeasonAndAdjacentEpisodes follows Swiftfin's season page, which
+// enables Play only once it finds an episode to resume or start.
+func TestSeasonAndAdjacentEpisodes(t *testing.T) {
+	c := newClient(t)
+	series := c.series()
+	c.preserveWatchState(series)
+	season := c.items("/Shows/"+series.Id+"/Seasons", nil).Items[0]
+	inSeason := c.items("/Shows/"+season.Id+"/Episodes", url.Values{"seasonId": {season.Id}}).Items
+	if len(inSeason) < 3 {
+		t.Skip("needs a season of three episodes")
+	}
+	first := c.items("/Items", url.Values{
+		"parentId": {season.Id}, "includeItemTypes": {"Episode"}, "recursive": {"true"},
+		"isMissing": {"false"}, "sortOrder": {"Ascending"}, "limit": {"1"},
+	})
+	if len(first.Items) != 1 || first.Items[0].Id != inSeason[0].Id {
+		t.Errorf("first episode of the season: %+v", first.Items)
+	}
+
+	resumed := inSeason[1]
+	c.setPlayed(resumed.Id, false)
+	c.report("/Sessions/Playing/Stopped", resumed, resumePositionMs)
+	resume := c.items("/UserItems/Resume", url.Values{"parentId": {season.Id}, "limit": {"1"}})
+	if len(resume.Items) != 1 || resume.Items[0].SeasonId != season.Id {
+		t.Errorf("resume in the season: %+v", resume.Items)
+	}
+
+	for _, tc := range []struct {
+		around int
+		want   []int
+	}{{1, []int{0, 1, 2}}, {0, []int{0, 1}}} {
+		adjacent := c.items("/Shows/"+series.Id+"/Episodes", url.Values{"adjacentTo": {inSeason[tc.around].Id}})
+		var got []string
+		for _, it := range adjacent.Items {
+			got = append(got, it.Id)
+		}
+		var want []string
+		for _, i := range tc.want {
+			want = append(want, inSeason[i].Id)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("adjacent to episode %d: %v, want %v", tc.around, got, want)
+		}
+	}
+}
+
 func TestImages(t *testing.T) {
 	c := newClient(t)
 	series := c.series()

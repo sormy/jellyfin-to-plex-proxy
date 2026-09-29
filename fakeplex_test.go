@@ -141,6 +141,11 @@ func (p *fakePlex) routes() {
 		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.ParentRatingKey == r.PathValue("key") })})
 	})
 	p.mux.HandleFunc("GET /library/metadata/{key}/allLeaves", func(w http.ResponseWriter, r *http.Request) {
+		// Plex answers allLeaves only for shows; a season gets an empty list.
+		if m := p.items[r.PathValue("key")]; m == nil || m.Type != "show" {
+			p.write(w, PlexContainer{})
+			return
+		}
 		p.write(w, PlexContainer{Metadata: p.leaves(r.PathValue("key"))})
 	})
 	p.mux.HandleFunc("GET /library/onDeck", func(w http.ResponseWriter, r *http.Request) {

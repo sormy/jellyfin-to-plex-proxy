@@ -184,7 +184,7 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 	case ok && kind == KindItem:
 		children := s.plex.Children
 		if slices.Contains(types, "episode") && q.Get("recursive") == "true" {
-			children = s.plex.AllLeaves
+			children = s.episodesUnder
 		}
 		found, err := children(key)
 		return s.result(ofTypes(found, types), page), err
@@ -241,6 +241,16 @@ func (s *Server) byIDs(ids []string) (ItemsResult, error) {
 		found = append(found, m)
 	}
 	return s.result(found, Page{Size: allItems}), nil
+}
+
+// episodesUnder lists the episodes of a show or a season: Plex's allLeaves
+// answers only for shows, and a season's children are its episodes.
+func (s *Server) episodesUnder(key string) ([]PlexMetadata, error) {
+	children, err := s.plex.Children(key)
+	if err != nil || !slices.ContainsFunc(children, func(m PlexMetadata) bool { return m.Type == "season" }) {
+		return children, err
+	}
+	return s.plex.AllLeaves(key)
 }
 
 func (s *Server) plexItem(id string) (PlexMetadata, error) {
@@ -331,7 +341,7 @@ func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
 	var found []PlexMetadata
 	var err error
 	if kind, key, ok := DecodeID(q.Get("parentid")); ok && kind == KindItem {
-		found, err = s.plex.AllLeaves(key)
+		found, err = s.episodesUnder(key)
 	} else {
 		found, err = s.plex.OnDeck()
 	}
@@ -358,7 +368,7 @@ func (s *Server) nextEpisode(seriesID string) ([]PlexMetadata, error) {
 	if !ok {
 		return nil, errNotFound
 	}
-	episodes, err := s.plex.AllLeaves(key)
+	episodes, err := s.episodesUnder(key)
 	lastWatched := -1
 	for i, m := range episodes {
 		if m.ViewCount > 0 {
@@ -385,15 +395,22 @@ func (s *Server) seasons(w http.ResponseWriter, r *http.Request) {
 // episodes keys off seasonId: Swiftfin puts the season id in the path too.
 func (s *Server) episodes(w http.ResponseWriter, r *http.Request) {
 	q := query(r)
-	var found []PlexMetadata
-	var err error
-	if _, season, ok := DecodeID(q.Get("seasonid")); ok {
-		found, err = s.plex.Children(season)
-	} else {
-		_, series, _ := DecodeID(r.PathValue("id"))
-		found, err = s.plex.AllLeaves(series)
+	parent := cmp.Or(q.Get("seasonid"), r.PathValue("id"))
+	_, key, _ := DecodeID(parent)
+	found, err := s.episodesUnder(key)
+	if _, adjacent, ok := DecodeID(q.Get("adjacentto")); ok {
+		found = adjacentTo(found, adjacent)
 	}
 	respond(w, s.result(found, paging(q)), err)
+}
+
+// adjacentTo keeps an episode and its neighbours, as Jellyfin's adjacentTo does.
+func adjacentTo(episodes []PlexMetadata, ratingKey string) []PlexMetadata {
+	i := slices.IndexFunc(episodes, func(m PlexMetadata) bool { return m.RatingKey == ratingKey })
+	if i < 0 {
+		return nil
+	}
+	return episodes[max(i-1, 0):min(i+2, len(episodes))]
 }
 
 func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request) {
