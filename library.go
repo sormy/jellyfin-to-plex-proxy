@@ -283,27 +283,65 @@ func (s *Server) plexItem(id string) (PlexMetadata, error) {
 	return s.plex.Item(key)
 }
 
+// A library counts its top-level items, and everything playable in it.
+var sectionCounts = map[string][2]string{"movie": {"movie", "movie"}, "show": {"show", "episode"}}
+
 func (s *Server) libraries() ([]Item, error) {
 	sections, err := s.plex.Sections()
 	views := []Item{}
 	for _, section := range sections {
-		if collection, ok := collectionTypes[section.Type]; ok {
-			views = append(views, Item{
-				Id:             EncodeID(KindLibrary, section.Key),
-				ServerId:       s.serverID,
-				Name:           section.Title,
-				Type:           "CollectionFolder",
-				CollectionType: collection,
-				IsFolder:       true,
-			})
+		collection, ok := collectionTypes[section.Type]
+		if !ok {
+			continue
 		}
+		counts := sectionCounts[section.Type]
+		children, countErr := s.count(section.Key, counts[0])
+		playable, playableErr := s.count(section.Key, counts[1])
+		views = append(views, Item{
+			Id:                 EncodeID(KindLibrary, section.Key),
+			ServerId:           s.serverID,
+			Name:               section.Title,
+			Type:               "CollectionFolder",
+			CollectionType:     collection,
+			IsFolder:           true,
+			ChildCount:         children,
+			RecursiveItemCount: playable,
+		})
+		err = cmp.Or(err, countErr, playableErr)
 	}
 	return views, err
+}
+
+// count asks Plex for a total alone: a page of no items still carries it.
+func (s *Server) count(section, plexType string) (int, error) {
+	c, err := s.plex.SectionItems(section, url.Values{"type": {plexTypeNumbers[plexType]}}, Page{})
+	return c.TotalSize, err
 }
 
 func (s *Server) views(w http.ResponseWriter, r *http.Request) {
 	views, err := s.libraries()
 	respond(w, ItemsResult{Items: views, TotalRecordCount: len(views)}, err)
+}
+
+// groupingOptions names the libraries a client may group by; Infuse asks first.
+func (s *Server) groupingOptions(w http.ResponseWriter, r *http.Request) {
+	views, err := s.libraries()
+	options := []NameID{}
+	for _, view := range views {
+		options = append(options, NameID{Name: view.Name, Id: view.Id})
+	}
+	respond(w, options, err)
+}
+
+func (s *Server) virtualFolders(w http.ResponseWriter, r *http.Request) {
+	views, err := s.libraries()
+	folders := []VirtualFolder{}
+	for _, view := range views {
+		folders = append(folders, VirtualFolder{
+			Name: view.Name, ItemId: view.Id, CollectionType: view.CollectionType, Locations: []string{},
+		})
+	}
+	respond(w, folders, err)
 }
 
 func (s *Server) item(w http.ResponseWriter, r *http.Request) {

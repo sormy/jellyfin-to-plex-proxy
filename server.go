@@ -166,6 +166,12 @@ func (s *Server) routes() {
 	s.private("POST /Sessions/Capabilities/Full", noContent)
 	s.private("GET /UserViews", s.views)
 	s.private("GET /Users/{userId}/Views", s.views)
+	s.private("GET /UserViews/GroupingOptions", s.groupingOptions)
+	s.private("GET /Library/VirtualFolders", s.virtualFolders)
+	s.private("GET /DisplayPreferences/{id}", s.displayPreferences)
+	s.private("POST /DisplayPreferences/{id}", noContent)
+	s.private("GET /Library/MediaFolders", s.views)
+	s.private("GET /Users/{userId}/GroupingOptions", s.groupingOptions)
 	s.private("GET /Items", s.items)
 	s.private("GET /Users/{userId}/Items", s.items)
 	s.private("GET /Items/{id}", s.item)
@@ -222,6 +228,19 @@ func emptyObject(w http.ResponseWriter, r *http.Request) {
 
 func noContent(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// displayPreferences answers Jellyfin's defaults: the proxy stores none.
+func (s *Server) displayPreferences(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, DisplayPreferences{
+		Id:              r.PathValue("id"),
+		Client:          query(r).Get("client"),
+		SortBy:          "SortName",
+		SortOrder:       "Ascending",
+		ScrollDirection: "Horizontal",
+		ShowBackdrop:    true,
+		CustomPrefs:     map[string]string{},
+	})
 }
 
 func (s *Server) systemInfo(w http.ResponseWriter, r *http.Request) {

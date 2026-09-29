@@ -248,6 +248,10 @@ func TestLibraries(t *testing.T) {
 			if c.item(view.Id).CollectionType != view.CollectionType {
 				t.Error("view lookup differs")
 			}
+			// Infuse reads these counts and treats a library of zero as empty.
+			if view.ChildCount == 0 || view.RecursiveItemCount < view.ChildCount {
+				t.Errorf("counts: %d children, %d recursive", view.ChildCount, view.RecursiveItemCount)
+			}
 			itemType := map[string]string{"movies": "Movie", "tvshows": "Series"}[view.CollectionType]
 			q := url.Values{"parentId": {view.Id}, "includeItemTypes": {itemType}, "sortBy": {"SortName"}, "limit": {"5"}}
 			first := c.items("/Items", q)
@@ -358,6 +362,9 @@ func TestSeriesNavigation(t *testing.T) {
 		}
 	}
 	all := c.episodes(series)
+	if count := c.item(series.Id).RecursiveItemCount; count != len(all) {
+		t.Errorf("series counts %d episodes, lists %d", count, len(all))
+	}
 	if len(all) < len(episodes.Items) {
 		t.Errorf("series has %d episodes, season %d", len(all), len(episodes.Items))
 	}
@@ -638,6 +645,26 @@ func TestHomeRowsAndUserRoutes(t *testing.T) {
 	}
 
 	views := c.items(user+"/Views", nil)
+	var preferences DisplayPreferences
+	c.expect(http.MethodGet, "/DisplayPreferences/usersettings", url.Values{"userId": {me.Id}, "client": {"emby"}}, nil, http.StatusOK, &preferences)
+	c.expect(http.MethodPost, "/DisplayPreferences/usersettings", url.Values{"client": {"emby"}}, preferences, http.StatusNoContent, nil)
+	if preferences.Id != "usersettings" || preferences.Client != "emby" || preferences.CustomPrefs == nil {
+		t.Errorf("display preferences %+v", preferences)
+	}
+	var folders []VirtualFolder
+	c.expect(http.MethodGet, "/Library/VirtualFolders", nil, nil, http.StatusOK, &folders)
+	mediaFolders := c.items("/Library/MediaFolders", nil)
+	if len(folders) != len(views.Items) || folders[0].ItemId != views.Items[0].Id || folders[0].CollectionType == "" ||
+		len(mediaFolders.Items) != len(views.Items) {
+		t.Errorf("virtual folders %+v, media folders %d", folders, len(mediaFolders.Items))
+	}
+	for _, path := range []string{"/UserViews/GroupingOptions", user + "/GroupingOptions"} {
+		var options []NameID
+		c.expect(http.MethodGet, path, nil, nil, http.StatusOK, &options)
+		if len(options) != len(views.Items) || options[0].Id != views.Items[0].Id {
+			t.Errorf("%s: %+v", path, options)
+		}
+	}
 	var latest []Item
 	c.expect(http.MethodGet, user+"/Items/Latest", url.Values{"parentId": {views.Items[0].Id}}, nil, http.StatusOK, &latest)
 	var item Item

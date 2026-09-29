@@ -78,10 +78,12 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 	case "show":
 		item.IsFolder = true
 		item.ChildCount = m.ChildCount
+		item.RecursiveItemCount = m.LeafCount
 		item.PrimaryImageAspectRatio = posterAspectRatio
 	case "season":
 		item.IsFolder = true
 		item.ChildCount = m.LeafCount
+		item.RecursiveItemCount = m.LeafCount
 		item.IndexNumber = intPointer(m.Index)
 		item.SeriesId = EncodeID(KindItem, m.ParentRatingKey)
 		item.SeriesName = m.ParentTitle

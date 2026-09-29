@@ -127,6 +127,7 @@ type Item struct {
 	RunTimeTicks            int64             `json:"RunTimeTicks,omitempty"`
 	Genres                  []string          `json:"Genres,omitempty"`
 	ChildCount              int               `json:"ChildCount,omitempty"`
+	RecursiveItemCount      int               `json:"RecursiveItemCount,omitempty"`
 	IndexNumber             *int              `json:"IndexNumber,omitempty"`
 	ParentIndexNumber       *int              `json:"ParentIndexNumber,omitempty"`
 	SeriesId                string            `json:"SeriesId,omitempty"`
@@ -142,6 +143,34 @@ type Item struct {
 	UserData                *UserData         `json:"UserData,omitempty"`
 	MediaSources            []MediaSource     `json:"MediaSources,omitempty"`
 	MediaStreams            []MediaStream     `json:"MediaStreams,omitempty"`
+}
+
+type NameID struct {
+	Name string `json:"Name"`
+	Id   string `json:"Id"`
+}
+
+// VirtualFolder describes a library; Locations stay empty to keep server paths private.
+type VirtualFolder struct {
+	Name           string   `json:"Name"`
+	ItemId         string   `json:"ItemId"`
+	CollectionType string   `json:"CollectionType"`
+	Locations      []string `json:"Locations"`
+}
+
+type DisplayPreferences struct {
+	Id                 string            `json:"Id"`
+	Client             string            `json:"Client"`
+	SortBy             string            `json:"SortBy"`
+	SortOrder          string            `json:"SortOrder"`
+	ScrollDirection    string            `json:"ScrollDirection"`
+	ShowBackdrop       bool              `json:"ShowBackdrop"`
+	ShowSidebar        bool              `json:"ShowSidebar"`
+	RememberIndexing   bool              `json:"RememberIndexing"`
+	RememberSorting    bool              `json:"RememberSorting"`
+	PrimaryImageHeight int               `json:"PrimaryImageHeight"`
+	PrimaryImageWidth  int               `json:"PrimaryImageWidth"`
+	CustomPrefs        map[string]string `json:"CustomPrefs"`
 }
 
 type ItemsResult struct {
