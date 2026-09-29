@@ -125,10 +125,10 @@ func (p *fakePlex) routes() {
 		}})
 	})
 	p.mux.HandleFunc("GET /library/sections/{section}/all", func(w http.ResponseWriter, r *http.Request) {
-		defaults := map[string]string{fakeMovieSection: "movie", fakeShowSection: "show", fakeMusicSection: "artist"}
-		p.list(w, r, defaults[r.PathValue("section")])
+		kind := map[string]string{fakeMovieSection: "movie", fakeShowSection: "show", fakeMusicSection: "artist"}[r.PathValue("section")]
+		p.list(w, r, kind, sectionHolds[kind])
 	})
-	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "") })
+	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "", nil) })
 	p.mux.HandleFunc("GET /library/metadata/{key}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := p.items[r.PathValue("key")]
 		if !ok {
@@ -301,13 +301,15 @@ func (p *fakePlex) onDeck() []PlexMetadata {
 
 var fakeTypeNames = map[string]string{"1": "movie", "2": "show", "3": "season", "4": "episode"}
 
-func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string) {
+// list answers a listing; a section holds only its own kinds of item.
+func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string, holds []string) {
 	q := r.URL.Query()
 	plexType = cmp.Or(fakeTypeNames[q.Get("type")], plexType)
 	unwatched := q.Get("unwatched")
 	found := p.matching(func(m *PlexMetadata) bool {
 		played := m.ViewCount > 0
-		return m.Type == plexType && (unwatched == "" || (unwatched == "1") != played)
+		inSection := holds == nil || slices.Contains(holds, m.Type)
+		return m.Type == plexType && inSection && (unwatched == "" || (unwatched == "1") != played)
 	})
 	field, order, _ := strings.Cut(q.Get("sort"), ":")
 	key := map[string]func(PlexMetadata) string{

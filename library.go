@@ -31,6 +31,9 @@ var jellyfinToPlexTypes = map[string]string{
 
 var plexTypeNumbers = map[string]string{"movie": "1", "show": "2", "season": "3", "episode": "4"}
 
+// sectionHolds lists the item types a Plex section of each kind contains.
+var sectionHolds = map[string][]string{"movie": {"movie"}, "show": {"show", "season", "episode"}}
+
 var plexSorts = map[string]string{
 	"sortname":        "titleSort",
 	"name":            "titleSort",
@@ -179,7 +182,15 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 	kind, key, ok := DecodeID(q.Get("parentid"))
 	switch {
 	case ok && kind == KindLibrary:
-		c, err := s.plex.SectionItems(key, plexQuery(q, firstOr(types, "")), page)
+		section, err := s.section(key)
+		if err != nil {
+			return ItemsResult{}, err
+		}
+		held := slices.DeleteFunc(slices.Clone(types), func(t string) bool { return !slices.Contains(sectionHolds[section.Type], t) })
+		if len(types) > 0 && len(held) == 0 {
+			return empty, nil
+		}
+		c, err := s.plex.SectionItems(key, plexQuery(q, firstOr(held, "")), page)
 		return ItemsResult{Items: ToItems(s.serverID, c.Metadata), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
 	case ok && kind == KindItem:
 		children := s.plex.Children
@@ -318,20 +329,28 @@ func (s *Server) latestItems(q url.Values) ([]Item, error) {
 	if !ok || kind != KindLibrary {
 		return []Item{}, nil
 	}
-	sections, err := s.plex.Sections()
+	section, err := s.section(key)
 	if err != nil {
 		return nil, err
-	}
-	i := slices.IndexFunc(sections, func(d PlexDirectory) bool { return d.Key == key })
-	if i < 0 {
-		return nil, errNotFound
 	}
 	limit := intParam(q, "limit")
 	if limit <= 0 {
 		limit = defaultLatestLimit
 	}
-	c, err := s.plex.SectionItems(key, plexLatest[sections[i].Type], Page{Size: limit})
+	c, err := s.plex.SectionItems(key, plexLatest[section.Type], Page{Size: limit})
 	return ToItems(s.serverID, c.Metadata), err
+}
+
+func (s *Server) section(key string) (PlexDirectory, error) {
+	sections, err := s.plex.Sections()
+	if err != nil {
+		return PlexDirectory{}, err
+	}
+	i := slices.IndexFunc(sections, func(d PlexDirectory) bool { return d.Key == key })
+	if i < 0 {
+		return PlexDirectory{}, errNotFound
+	}
+	return sections[i], nil
 }
 
 func inProgress(m PlexMetadata) bool { return m.ViewOffset > 0 }

@@ -273,6 +273,25 @@ func TestLibraries(t *testing.T) {
 	}
 }
 
+// TestLibraryTiles asks as Swiftfin's media screen does: any kind of video
+// under each library, whose images make the library's tile.
+func TestLibraryTiles(t *testing.T) {
+	c := newClient(t)
+	for _, view := range c.items("/UserViews", nil).Items {
+		tile := c.items("/Items", url.Values{
+			"parentId": {view.Id}, "recursive": {"true"}, "sortBy": {"Random"}, "limit": {"3"},
+			"includeItemTypes": {"BoxSet", "Movie", "MusicVideo", "Series", "Video"},
+		})
+		if len(tile.Items) == 0 || tile.Items[0].ImageTags["Primary"] == "" {
+			t.Errorf("%s tile: %+v", view.Name, tile.Items)
+		}
+		foreign := map[string]string{"movies": "Series", "tvshows": "Movie"}[view.CollectionType]
+		if other := c.items("/Items", url.Values{"parentId": {view.Id}, "includeItemTypes": {foreign}}); len(other.Items) > 0 {
+			t.Errorf("%s holds %d of %s", view.Name, len(other.Items), foreign)
+		}
+	}
+}
+
 func TestRecentlyAddedAcrossLibraries(t *testing.T) {
 	c := newClient(t)
 	recent := c.items("/Items", url.Values{
