@@ -152,3 +152,7 @@ stream URL is valid only with the play session the proxy signed for that item.
 - Movie and show libraries only: no music, photos or Live TV.
 - Favorites are acknowledged, not stored — Plex has none.
 - Genre, tag and language filters and people are empty.
+
+## License
+
+MIT — see `LICENSE`.
