@@ -35,18 +35,25 @@ var plexTypeNumbers = map[string]string{"movie": "1", "show": "2", "season": "3"
 var sectionHolds = map[string][]string{"movie": {"movie"}, "show": {"show", "season", "episode"}}
 
 var plexSorts = map[string]string{
-	"sortname":        "titleSort",
-	"name":            "titleSort",
-	"datecreated":     "addedAt",
-	"premieredate":    "originallyAvailableAt",
-	"productionyear":  "year",
-	"communityrating": "audienceRating",
-	"officialrating":  "contentRating",
-	"dateplayed":      "lastViewedAt",
-	"playcount":       "viewCount",
-	"runtime":         "duration",
-	"random":          "random",
+	"sortname":             "titleSort",
+	"name":                 "titleSort",
+	"datecreated":          "addedAt",
+	"datelastcontentadded": "addedAt",
+	"premieredate":         "originallyAvailableAt",
+	"productionyear":       "year",
+	"communityrating":      "audienceRating",
+	"criticrating":         "rating",
+	"officialrating":       "contentRating",
+	"dateplayed":           "lastViewedAt",
+	"playcount":            "viewCount",
+	"runtime":              "duration",
+	"studio":               "studio",
+	"videobitrate":         "mediaBitrate",
+	"random":               "random",
 }
+
+// A show's content arrives as episodes, so it sorts by its newest one.
+var plexShowSorts = map[string]string{"datelastcontentadded": "episode.addedAt"}
 
 var plexFilters = map[string][2]string{
 	"isplayed":    {"unwatched", "0"},
@@ -112,7 +119,11 @@ func plexQuery(q url.Values, plexType string) url.Values {
 	if plexType != "" {
 		v.Set("type", plexTypeNumbers[plexType])
 	}
-	if sort, ok := plexSorts[strings.ToLower(q.Get("sortby"))]; ok {
+	sortBy := strings.ToLower(q.Get("sortby"))
+	if sort, ok := plexSorts[sortBy]; ok {
+		if plexType == "show" {
+			sort = cmp.Or(plexShowSorts[sortBy], sort)
+		}
 		if strings.EqualFold(q.Get("sortorder"), "Descending") {
 			sort += ":desc"
 		}

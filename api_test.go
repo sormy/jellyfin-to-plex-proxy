@@ -292,6 +292,38 @@ func TestLibraryTiles(t *testing.T) {
 	}
 }
 
+func TestLibrarySorts(t *testing.T) {
+	c := newClient(t)
+	for _, view := range c.items("/UserViews", nil).Items {
+		itemType := map[string]string{"movies": "Movie", "tvshows": "Series"}[view.CollectionType]
+		for _, tc := range []struct {
+			sortBy, sortOrder string
+			key               func(Item) string
+			descending        bool
+		}{
+			{"DateCreated", "Descending", func(it Item) string { return it.DateCreated }, true},
+			{"ProductionYear", "Ascending", func(it Item) string { return fmt.Sprintf("%04d", it.ProductionYear) }, false},
+		} {
+			sorted := c.items("/Items", url.Values{
+				"parentId": {view.Id}, "includeItemTypes": {itemType}, "sortBy": {tc.sortBy},
+				"sortOrder": {tc.sortOrder}, "limit": {"20"},
+			}).Items
+			keys := []string{}
+			for _, it := range sorted {
+				if k := tc.key(it); k != "" && k != "0000" {
+					keys = append(keys, k)
+				}
+			}
+			if tc.descending {
+				slices.Reverse(keys)
+			}
+			if !slices.IsSorted(keys) {
+				t.Errorf("%s by %s %s: %v", view.Name, tc.sortBy, tc.sortOrder, keys)
+			}
+		}
+	}
+}
+
 func TestRecentlyAddedAcrossLibraries(t *testing.T) {
 	c := newClient(t)
 	recent := c.items("/Items", url.Values{

@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+func TestPlexQuerySorts(t *testing.T) {
+	for _, tc := range []struct {
+		sortBy, sortOrder, plexType, want string
+	}{
+		{"SortName", "Ascending", "movie", "titleSort"},
+		{"Name", "Descending", "show", "titleSort:desc"},
+		{"DateCreated", "Descending", "movie", "addedAt:desc"},
+		{"DateLastContentAdded", "Descending", "show", "episode.addedAt:desc"},
+		{"DateLastContentAdded", "Descending", "movie", "addedAt:desc"},
+		{"PremiereDate", "Ascending", "show", "originallyAvailableAt"},
+		{"ProductionYear", "Ascending", "movie", "year"},
+		{"CommunityRating", "Descending", "movie", "audienceRating:desc"},
+		{"CriticRating", "Descending", "show", "rating:desc"},
+		{"OfficialRating", "Ascending", "movie", "contentRating"},
+		{"DatePlayed", "Descending", "movie", "lastViewedAt:desc"},
+		{"PlayCount", "Descending", "movie", "viewCount:desc"},
+		{"Runtime", "Ascending", "movie", "duration"},
+		{"Studio", "Ascending", "show", "studio"},
+		{"VideoBitRate", "Descending", "movie", "mediaBitrate:desc"},
+		{"Random", "Ascending", "show", "random"},
+		{"IsFavoriteOrLiked", "Ascending", "movie", ""},
+	} {
+		q := url.Values{"sortby": {tc.sortBy}, "sortorder": {tc.sortOrder}}
+		if got := plexQuery(q, tc.plexType).Get("sort"); got != tc.want {
+			t.Errorf("%s %s on %s: %q, want %q", tc.sortBy, tc.sortOrder, tc.plexType, got, tc.want)
+		}
+	}
+}
+
 func TestPlayState(t *testing.T) {
 	const episodeMs, shortMs = 1_200_000, 120_000
 	for _, tc := range []struct {
