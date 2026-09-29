@@ -193,7 +193,10 @@ func (s *Server) routes() {
 	for _, pattern := range []string{"GET /Items/{id}/LocalTrailers", "GET /Items/{id}/SpecialFeatures"} {
 		s.private(pattern, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, []Item{}) })
 	}
-	for _, pattern := range []string{"GET /Items/{id}/Similar", "GET /Videos/{id}/AdditionalParts", "GET /Persons"} {
+	s.private("GET /Localization/Cultures", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, cultures) })
+	for _, pattern := range []string{
+		"GET /Items/{id}/Similar", "GET /Videos/{id}/AdditionalParts", "GET /Persons", "GET /LiveTv/Programs/Recommended",
+	} {
 		s.private(pattern, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, ItemsResult{Items: []Item{}}) })
 	}
 	s.private("GET /Items/Filters", emptyObject)

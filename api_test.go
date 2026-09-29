@@ -742,6 +742,14 @@ func TestStubs(t *testing.T) {
 	} {
 		c.expect(http.MethodGet, path, nil, nil, http.StatusOK, nil)
 	}
+	var languages []Culture
+	c.expect(http.MethodGet, "/Localization/Cultures", nil, nil, http.StatusOK, &languages)
+	for _, want := range []string{"eng", "rus"} {
+		if !slices.ContainsFunc(languages, func(l Culture) bool { return slices.Contains(l.ThreeLetterISOLanguageNames, want) }) {
+			t.Errorf("cultures lack %s", want)
+		}
+	}
+	c.expect(http.MethodGet, "/LiveTv/Programs/Recommended", nil, nil, http.StatusOK, nil)
 	for _, path := range []string{"/Sessions/Capabilities", "/Sessions/Capabilities/Full"} {
 		c.expect(http.MethodPost, path, nil, map[string]string{}, http.StatusNoContent, nil)
 	}
