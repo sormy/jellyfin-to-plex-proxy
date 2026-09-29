@@ -121,6 +121,7 @@ func ToItems(serverID string, found []PlexMetadata) []Item {
 func toUserData(m PlexMetadata) *UserData {
 	data := &UserData{
 		Key:                   m.RatingKey,
+		ItemId:                EncodeID(KindItem, m.RatingKey),
 		PlaybackPositionTicks: m.ViewOffset * ticksPerMillisecond,
 		PlayCount:             m.ViewCount,
 		Played:                m.ViewCount > 0,

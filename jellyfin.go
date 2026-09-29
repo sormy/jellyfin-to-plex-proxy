@@ -54,8 +54,10 @@ func FormatDay(day string) string {
 	return t.Format(jellyfinTimeLayout)
 }
 
+// UserData must name its item: Swiftfin applies a change to its lists by ItemId.
 type UserData struct {
 	Key                   string  `json:"Key"`
+	ItemId                string  `json:"ItemId"`
 	PlaybackPositionTicks int64   `json:"PlaybackPositionTicks"`
 	PlayedPercentage      float64 `json:"PlayedPercentage,omitempty"`
 	Played                bool    `json:"Played"`

@@ -341,7 +341,14 @@ func TestSeasonAndAdjacentEpisodes(t *testing.T) {
 		t.Errorf("first episode of the season: %+v", first.Items)
 	}
 
-	resumed := inSeason[1]
+	// A resume point needs a version long enough to hold one.
+	i := slices.IndexFunc(inSeason[1:], func(it Item) bool {
+		return len(it.MediaSources) > 0 && it.MediaSources[0].RunTimeTicks >= minResumeDurationMs*ticksPerMillisecond
+	})
+	if i < 0 {
+		t.Fatal("no episode long enough to resume")
+	}
+	resumed := inSeason[1+i]
 	c.setPlayed(resumed.Id, false)
 	c.report("/Sessions/Playing/Stopped", resumed, resumePositionMs)
 	resume := c.items("/UserItems/Resume", url.Values{"parentId": {season.Id}, "limit": {"1"}})
@@ -444,12 +451,29 @@ func TestMarkPlayed(t *testing.T) {
 	unplayed := *c.item(series.Id).UserData.UnplayedItemCount
 	for _, played := range []bool{true, false, true} {
 		data := c.setPlayed(episode.Id, played)
-		if data.Played != played || data.Key == "" || c.item(episode.Id).UserData.Played != played {
+		if data.Played != played || data.ItemId != episode.Id || c.item(episode.Id).UserData.Played != played {
 			t.Errorf("set played %v: %+v", played, data)
 		}
 	}
 	if after := *c.item(series.Id).UserData.UnplayedItemCount; after != unplayed-1 {
 		t.Errorf("series unplayed %d → %d after marking an episode played", unplayed, after)
+	}
+}
+
+func TestMarkSeriesPlayed(t *testing.T) {
+	c := newClient(t)
+	series := c.series()
+	c.preserveWatchState(series)
+	for _, played := range []bool{true, false} {
+		data := c.setPlayed(series.Id, played)
+		if data.Played != played || data.ItemId != series.Id {
+			t.Errorf("series played %v: %+v", played, data)
+		}
+		for _, episode := range c.episodes(series) {
+			if episode.UserData.Played != played {
+				t.Fatalf("series played %v: %s played %v", played, episode.Name, episode.UserData.Played)
+			}
+		}
 	}
 }
 
