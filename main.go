@@ -1,0 +1,84 @@
+// Command jellyfin-to-plex-proxy serves a Plex library over the Jellyfin API.
+package main
+
+import (
+	"cmp"
+	"encoding/json"
+	"log"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+)
+
+const (
+	discoveryAddress = ":7359"
+	discoveryProbe   = "who is jellyfinserver?"
+	defaultListen    = ":8096"
+	defaultPlexURL   = "http://127.0.0.1:32400"
+	defaultUserName  = "plex"
+	discoveryBuffer  = 1024
+)
+
+func requireEnv(name string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		log.Fatalf("%s is not set", name)
+	}
+	return value
+}
+
+func main() {
+	plexURL, err := url.Parse(cmp.Or(os.Getenv("PLEX_URL"), defaultPlexURL))
+	if err != nil {
+		log.Fatalf("PLEX_URL: %v", err)
+	}
+	server, err := NewServer(NewPlex(plexURL, requireEnv("PLEX_TOKEN")), Config{
+		UserName: cmp.Or(os.Getenv("JELLYFIN_USER"), defaultUserName),
+		Password: requireEnv("JELLYFIN_PASSWORD"),
+	})
+	if err != nil {
+		log.Fatalf("plex: %v", err)
+	}
+	listen := cmp.Or(os.Getenv("LISTEN"), defaultListen)
+	_, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		log.Fatalf("LISTEN: %v", err)
+	}
+	if conn, err := net.ListenPacket("udp", discoveryAddress); err == nil {
+		go server.answerDiscovery(conn, port)
+	} else {
+		log.Printf("discovery: %v", err)
+	}
+	log.Printf("serving %q on %s", server.serverName, listen)
+	log.Fatal(http.ListenAndServe(listen, server))
+}
+
+// answerDiscovery replies to the UDP broadcast clients send to find servers,
+// with the address of whichever interface faces the asker.
+func (s *Server) answerDiscovery(conn net.PacketConn, port string) {
+	buffer := make([]byte, discoveryBuffer)
+	for {
+		n, asker, err := conn.ReadFrom(buffer)
+		if err != nil {
+			log.Printf("discovery: %v", err)
+			return
+		}
+		if !strings.Contains(strings.ToLower(string(buffer[:n])), discoveryProbe) {
+			continue
+		}
+		route, err := net.Dial("udp", asker.String())
+		if err != nil {
+			continue
+		}
+		local := route.LocalAddr().(*net.UDPAddr).IP.String()
+		route.Close()
+		reply, _ := json.Marshal(DiscoveryReply{
+			Address: "http://" + net.JoinHostPort(local, port),
+			Id:      s.serverID,
+			Name:    s.serverName,
+		})
+		conn.WriteTo(reply, asker)
+	}
+}

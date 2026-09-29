@@ -1,0 +1,13 @@
+[Unit]
+Description=Jellyfin API over Plex
+After=network-online.target plexmediaserver.service
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/jellyfin-to-plex-proxy.env
+ExecStart=/usr/local/bin/jellyfin-to-plex-proxy
+DynamicUser=yes
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

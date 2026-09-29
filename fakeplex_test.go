@@ -1,0 +1,337 @@
+package main
+
+import (
+	"bytes"
+	"cmp"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+const (
+	fakePlexToken       = "fake-plex-token"
+	fakeEpisodeMs       = 660_000
+	fakeMovieMs         = 5_400_000
+	fakeMovieCount      = 7
+	fakeScrobbleAt      = 0.9
+	fakeMovieSection    = "1"
+	fakeShowSection     = "2"
+	fakeMusicSection    = "3"
+	fakeSeriesKey       = "200"
+	fakePartFileSize    = 4096
+	fakeSubtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nhello\n"
+	fakeMaxImageSide    = 16384
+	fakeTrailerMs       = 106_000
+)
+
+// fakePlex is an in-memory Plex Media Server: the subset of its API the
+// proxy calls, with watch state that changes as Plex's would.
+type fakePlex struct {
+	mu    sync.Mutex
+	items map[string]*PlexMetadata
+	order []string
+	clock int64
+	mux   *http.ServeMux
+}
+
+func newFakePlex(t *testing.T) *httptest.Server {
+	p := &fakePlex{items: map[string]*PlexMetadata{}, clock: 1_700_000_000, mux: http.NewServeMux()}
+	p.seed()
+	p.routes()
+	server := httptest.NewServer(p)
+	t.Cleanup(server.Close)
+	return server
+}
+
+func (p *fakePlex) add(m PlexMetadata) {
+	p.clock += 100
+	m.AddedAt = p.clock
+	m.Thumb = fmt.Sprintf("/library/metadata/%s/thumb/%d", m.RatingKey, p.clock)
+	if m.Type != "episode" {
+		m.Art = fmt.Sprintf("/library/metadata/%s/art/%d", m.RatingKey, p.clock)
+	}
+	p.items[m.RatingKey] = &m
+	p.order = append(p.order, m.RatingKey)
+}
+
+func fakeMedia(partID int, durationMs int64) []PlexMedia {
+	return []PlexMedia{{Duration: durationMs, Bitrate: 4000, VideoCodec: "hevc", VideoResolution: "1080", Part: []PlexPart{{
+		ID: partID, Key: fmt.Sprintf("/library/parts/%d/1/file.mkv", partID), Size: fakePartFileSize,
+		Container: "mkv", Duration: durationMs,
+		Stream: []PlexStream{
+			{StreamType: 1, Index: 0, Codec: "hevc", Width: 1920, Height: 1080},
+			{StreamType: 2, Index: 1, Codec: "aac", LanguageCode: "eng", Channels: 2, Selected: true},
+			{StreamType: 3, Key: fmt.Sprintf("/library/streams/%d", partID), Codec: "srt", LanguageCode: "eng"},
+		},
+	}}}}
+}
+
+func (p *fakePlex) seed() {
+	for i := 1; i <= fakeMovieCount; i++ {
+		key := strconv.Itoa(100 + i)
+		p.add(PlexMetadata{RatingKey: key, Type: "movie", Title: fmt.Sprintf("Movie %d", i), Year: 2000 + i,
+			Duration: fakeMovieMs, Media: fakeMedia(100+i, fakeMovieMs)})
+	}
+	// Plex merges versions of one title, as a trailer filed beside the movie.
+	first := p.items["101"]
+	first.Media = append(fakeMedia(1001, fakeTrailerMs), first.Media...)
+	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
+	p.addShow("300", "The Other Show", 1, 1)
+}
+
+func (p *fakePlex) addShow(key, title string, seasons, episodes int) {
+	show, _ := strconv.Atoi(key)
+	p.add(PlexMetadata{RatingKey: key, Type: "show", Title: title})
+	for s := 1; s <= seasons; s++ {
+		season := strconv.Itoa(show + 10*s)
+		p.add(PlexMetadata{RatingKey: season, Type: "season", Title: fmt.Sprintf("Season %d", s), Index: s,
+			ParentRatingKey: key, ParentTitle: title})
+		for e := 1; e <= episodes; e++ {
+			rk := show + 10*s + e
+			p.add(PlexMetadata{RatingKey: strconv.Itoa(rk), Type: "episode", Title: fmt.Sprintf("Episode %d", e),
+				Index: e, ParentIndex: s, ParentRatingKey: season, ParentTitle: fmt.Sprintf("Season %d", s),
+				GrandparentRatingKey: key, GrandparentTitle: title, Duration: fakeEpisodeMs,
+				Media: fakeMedia(rk, fakeEpisodeMs)})
+		}
+	}
+}
+
+func (p *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("X-Plex-Token") != fakePlexToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.mux.ServeHTTP(w, r)
+}
+
+func (p *fakePlex) routes() {
+	p.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{MachineIdentifier: strings.Repeat("ab", 20), FriendlyName: "Fake Plex", Version: "1.42"})
+	})
+	p.mux.HandleFunc("GET /library/sections", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{Directory: []PlexDirectory{
+			{Key: fakeMovieSection, Type: "movie", Title: "Movies"},
+			{Key: fakeShowSection, Type: "show", Title: "TV Shows"},
+			{Key: fakeMusicSection, Type: "artist", Title: "Music"},
+		}})
+	})
+	p.mux.HandleFunc("GET /library/sections/{section}/all", func(w http.ResponseWriter, r *http.Request) {
+		defaults := map[string]string{fakeMovieSection: "movie", fakeShowSection: "show", fakeMusicSection: "artist"}
+		p.list(w, r, defaults[r.PathValue("section")])
+	})
+	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "") })
+	p.mux.HandleFunc("GET /library/metadata/{key}", func(w http.ResponseWriter, r *http.Request) {
+		m, ok := p.items[r.PathValue("key")]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		p.write(w, PlexContainer{Metadata: []PlexMetadata{p.view(m)}})
+	})
+	p.mux.HandleFunc("GET /library/metadata/{key}/children", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.ParentRatingKey == r.PathValue("key") })})
+	})
+	p.mux.HandleFunc("GET /library/metadata/{key}/allLeaves", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{Metadata: p.leaves(r.PathValue("key"))})
+	})
+	p.mux.HandleFunc("GET /library/onDeck", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{Metadata: p.onDeck()})
+	})
+	p.mux.HandleFunc("GET /hubs/search", func(w http.ResponseWriter, r *http.Request) {
+		term := strings.ToLower(r.URL.Query().Get("query"))
+		hubs := map[string]*PlexHub{}
+		var container PlexContainer
+		for _, m := range p.matching(func(m *PlexMetadata) bool { return strings.Contains(strings.ToLower(m.Title), term) }) {
+			if hubs[m.Type] == nil {
+				container.Hub = append(container.Hub, PlexHub{Type: m.Type})
+				hubs[m.Type] = &container.Hub[len(container.Hub)-1]
+			}
+			hub := &container.Hub[slices.IndexFunc(container.Hub, func(h PlexHub) bool { return h.Type == m.Type })]
+			hub.Metadata = append(hub.Metadata, m)
+		}
+		p.write(w, container)
+	})
+	p.mux.HandleFunc("GET /:/scrobble", func(w http.ResponseWriter, r *http.Request) {
+		p.scrobble(p.items[r.URL.Query().Get("key")])
+	})
+	p.mux.HandleFunc("GET /:/unscrobble", func(w http.ResponseWriter, r *http.Request) {
+		for _, m := range p.subtree(r.URL.Query().Get("key")) {
+			m.ViewCount, m.ViewOffset = 0, 0
+		}
+	})
+	p.mux.HandleFunc("GET /:/progress", func(w http.ResponseWriter, r *http.Request) {
+		m := p.items[r.URL.Query().Get("key")]
+		position, _ := strconv.ParseInt(r.URL.Query().Get("time"), 10, 64)
+		if m == nil {
+			http.NotFound(w, r)
+			return
+		}
+		if position > plexMinResumeMs {
+			m.ViewOffset = position
+		}
+	})
+	p.mux.HandleFunc("GET /photo/:/transcode", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		width, _ := strconv.Atoi(q.Get("width"))
+		height, _ := strconv.Atoi(q.Get("height"))
+		// Plex answers 500 to huge boxes; minSize makes it cover instead of fit.
+		if q.Get("url") == "" || width == 0 || height == 0 || max(width, height) > fakeMaxImageSide || q.Has("minSize") {
+			http.Error(w, "bad transcode", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Write([]byte{0xff, 0xd8, 0xff})
+	})
+	p.mux.HandleFunc("GET /library/parts/{id}/{stamp}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, r.PathValue("file"), time.Unix(p.clock, 0), bytes.NewReader(make([]byte, fakePartFileSize)))
+	})
+	p.mux.HandleFunc("GET /library/streams/{id}", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(fakeSubtitleContent))
+	})
+}
+
+func (p *fakePlex) write(w http.ResponseWriter, c PlexContainer) {
+	c.Size = len(c.Metadata) + len(c.Directory)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(plexEnvelope{MediaContainer: c})
+}
+
+func (p *fakePlex) scrobble(m *PlexMetadata) {
+	for _, leaf := range p.subtree(m.RatingKey) {
+		leaf.ViewCount++
+		leaf.ViewOffset = 0
+		leaf.LastViewedAt = p.clock
+	}
+}
+
+// subtree is the playable items under key: itself, or its episodes.
+func (p *fakePlex) subtree(key string) []*PlexMetadata {
+	var found []*PlexMetadata
+	for _, k := range p.order {
+		m := p.items[k]
+		if m.Duration > 0 && (k == key || m.ParentRatingKey == key || m.GrandparentRatingKey == key) {
+			found = append(found, m)
+		}
+	}
+	return found
+}
+
+// view fills in the counts Plex derives for shows and seasons.
+func (p *fakePlex) view(m *PlexMetadata) PlexMetadata {
+	v := *m
+	if m.Type == "show" || m.Type == "season" {
+		v.LeafCount, v.ViewedLeafCount = 0, 0
+		for _, leaf := range p.subtree(m.RatingKey) {
+			v.LeafCount++
+			if leaf.ViewCount > 0 {
+				v.ViewedLeafCount++
+			}
+		}
+		v.ChildCount = len(p.matching(func(c *PlexMetadata) bool { return c.ParentRatingKey == m.RatingKey }))
+	}
+	return v
+}
+
+// matching lists items as Plex lists do: without their streams.
+func (p *fakePlex) matching(keep func(*PlexMetadata) bool) []PlexMetadata {
+	found := []PlexMetadata{}
+	for _, k := range p.order {
+		if keep(p.items[k]) {
+			found = append(found, withoutStreams(p.view(p.items[k])))
+		}
+	}
+	return found
+}
+
+func withoutStreams(m PlexMetadata) PlexMetadata {
+	media := slices.Clone(m.Media)
+	for i := range media {
+		media[i].Part = slices.Clone(media[i].Part)
+		for j := range media[i].Part {
+			media[i].Part[j].Stream = nil
+		}
+	}
+	m.Media = media
+	return m
+}
+
+func (p *fakePlex) leaves(key string) []PlexMetadata {
+	var found []PlexMetadata
+	for _, m := range p.subtree(key) {
+		found = append(found, withoutStreams(p.view(m)))
+	}
+	return found
+}
+
+// onDeck is what Plex offers to continue: anything in progress, then the
+// next unwatched episode of each show already begun.
+func (p *fakePlex) onDeck() []PlexMetadata {
+	deck := p.matching(func(m *PlexMetadata) bool { return m.ViewOffset > 0 })
+	for _, show := range p.matching(func(m *PlexMetadata) bool { return m.Type == "show" }) {
+		episodes := p.leaves(show.RatingKey)
+		last := -1
+		for i, e := range episodes {
+			if e.ViewCount > 0 {
+				last = i
+			}
+		}
+		for _, e := range episodes[last+1:] {
+			if last >= 0 && e.ViewCount == 0 && e.ViewOffset == 0 {
+				deck = append(deck, e)
+				break
+			}
+		}
+	}
+	return deck
+}
+
+var fakeTypeNames = map[string]string{"1": "movie", "2": "show", "3": "season", "4": "episode"}
+
+func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string) {
+	q := r.URL.Query()
+	plexType = cmp.Or(fakeTypeNames[q.Get("type")], plexType)
+	unwatched := q.Get("unwatched")
+	found := p.matching(func(m *PlexMetadata) bool {
+		played := m.ViewCount > 0
+		return m.Type == plexType && (unwatched == "" || (unwatched == "1") != played)
+	})
+	field, order, _ := strings.Cut(q.Get("sort"), ":")
+	key := map[string]func(PlexMetadata) string{
+		"titleSort":       func(m PlexMetadata) string { return m.Title },
+		"addedAt":         func(m PlexMetadata) string { return fmt.Sprint(m.AddedAt) },
+		"episode.addedAt": func(m PlexMetadata) string { return fmt.Sprint(p.newestLeaf(m.RatingKey)) },
+		"year":            func(m PlexMetadata) string { return fmt.Sprint(m.Year) },
+	}[field]
+	if key != nil {
+		slices.SortStableFunc(found, func(a, b PlexMetadata) int {
+			if order == "desc" {
+				a, b = b, a
+			}
+			return strings.Compare(key(a), key(b))
+		})
+	}
+	start, _ := strconv.Atoi(r.Header.Get("X-Plex-Container-Start"))
+	size, err := strconv.Atoi(r.Header.Get("X-Plex-Container-Size"))
+	if err != nil {
+		size = len(found)
+	}
+	c := PlexContainer{TotalSize: len(found), Offset: start, Metadata: paginate(found, Page{Start: start, Size: size})}
+	p.write(w, c)
+}
+
+func (p *fakePlex) newestLeaf(key string) int64 {
+	var newest int64
+	for _, m := range p.subtree(key) {
+		newest = max(newest, m.AddedAt)
+	}
+	return newest
+}

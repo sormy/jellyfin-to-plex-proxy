@@ -1,0 +1,494 @@
+package main
+
+import (
+	"cmp"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+const (
+	allItems           = 100_000
+	defaultLatestLimit = 16
+	searchLimit        = 50
+)
+
+// Jellyfin's defaults for what a stopped position means.
+const (
+	minResumeFraction   = 0.05
+	maxResumeFraction   = 0.9
+	minResumeDurationMs = 300_000
+	plexMinResumeMs     = 60_000
+)
+
+var jellyfinToPlexTypes = map[string]string{
+	"movie": "movie", "series": "show", "season": "season", "episode": "episode",
+}
+
+var plexTypeNumbers = map[string]string{"movie": "1", "show": "2", "season": "3", "episode": "4"}
+
+var plexSorts = map[string]string{
+	"sortname":        "titleSort",
+	"name":            "titleSort",
+	"datecreated":     "addedAt",
+	"premieredate":    "originallyAvailableAt",
+	"productionyear":  "year",
+	"communityrating": "audienceRating",
+	"officialrating":  "contentRating",
+	"dateplayed":      "lastViewedAt",
+	"playcount":       "viewCount",
+	"runtime":         "duration",
+	"random":          "random",
+}
+
+var plexFilters = map[string][2]string{
+	"isplayed":    {"unwatched", "0"},
+	"isunplayed":  {"unwatched", "1"},
+	"isresumable": {"inProgress", "1"},
+}
+
+// Latest rows per library kind: movies by arrival, shows by newest episode.
+var plexLatest = map[string]url.Values{
+	"movie": {"type": {"1"}, "sort": {"addedAt:desc"}},
+	"show":  {"type": {"2"}, "sort": {"episode.addedAt:desc"}},
+}
+
+var errNotFound = errors.New("not found")
+
+// query lowercases keys and splits comma lists, so exploded and joined
+// array parameters read the same, whatever casing the client uses.
+func query(r *http.Request) url.Values {
+	return lowercaseKeys(r.URL.Query())
+}
+
+func lowercaseKeys(q url.Values) url.Values {
+	values := url.Values{}
+	for key, list := range q {
+		for _, value := range list {
+			values[strings.ToLower(key)] = append(values[strings.ToLower(key)], strings.Split(value, ",")...)
+		}
+	}
+	return values
+}
+
+func intParam(q url.Values, key string) int {
+	n, _ := strconv.Atoi(q.Get(key))
+	return n
+}
+
+func paging(q url.Values) Page {
+	page := Page{Start: intParam(q, "startindex"), Size: intParam(q, "limit")}
+	if page.Size <= 0 {
+		page.Size = allItems
+	}
+	return page
+}
+
+func paginate[T any](all []T, page Page) []T {
+	start := min(page.Start, len(all))
+	return all[start:min(start+page.Size, len(all))]
+}
+
+func plexTypes(q url.Values) []string {
+	var types []string
+	for _, name := range q["includeitemtypes"] {
+		if plexType, ok := jellyfinToPlexTypes[strings.ToLower(name)]; ok {
+			types = append(types, plexType)
+		}
+	}
+	return types
+}
+
+// plexQuery translates Jellyfin sorting and filters into Plex's.
+func plexQuery(q url.Values, plexType string) url.Values {
+	v := url.Values{}
+	if plexType != "" {
+		v.Set("type", plexTypeNumbers[plexType])
+	}
+	if sort, ok := plexSorts[strings.ToLower(q.Get("sortby"))]; ok {
+		if strings.EqualFold(q.Get("sortorder"), "Descending") {
+			sort += ":desc"
+		}
+		v.Set("sort", sort)
+	}
+	for _, filter := range q["filters"] {
+		if f, ok := plexFilters[strings.ToLower(filter)]; ok {
+			v.Set(f[0], f[1])
+		}
+	}
+	switch q.Get("isplayed") {
+	case "true":
+		v.Set("unwatched", "0")
+	case "false":
+		v.Set("unwatched", "1")
+	}
+	if years := q["years"]; len(years) > 0 {
+		v.Set("year", strings.Join(years, ","))
+	}
+	return v
+}
+
+func (s *Server) result(found []PlexMetadata, page Page) ItemsResult {
+	items := ToItems(s.serverID, found)
+	return ItemsResult{Items: paginate(items, page), TotalRecordCount: len(items), StartIndex: page.Start}
+}
+
+func ofTypes(found []PlexMetadata, types []string) []PlexMetadata {
+	if len(types) == 0 {
+		return found
+	}
+	return slices.DeleteFunc(found, func(m PlexMetadata) bool { return !slices.Contains(types, m.Type) })
+}
+
+func respond[T any](w http.ResponseWriter, value T, err error) {
+	switch {
+	case errors.Is(err, errNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case err != nil:
+		fail(w, err)
+	default:
+		writeJSON(w, value)
+	}
+}
+
+func (s *Server) items(w http.ResponseWriter, r *http.Request) {
+	result, err := s.queryItems(query(r))
+	respond(w, result, err)
+}
+
+func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
+	page := paging(q)
+	types := plexTypes(q)
+	empty := ItemsResult{Items: []Item{}, StartIndex: page.Start}
+	switch {
+	case len(q["ids"]) > 0:
+		return s.byIDs(q["ids"])
+	case q.Get("isfavorite") == "true" || slices.ContainsFunc(q["filters"], func(f string) bool { return strings.EqualFold(f, "IsFavorite") }):
+		return empty, nil
+	case q.Get("searchterm") != "":
+		if page.Start > 0 {
+			return empty, nil
+		}
+		found, err := s.plex.Search(q.Get("searchterm"), searchLimit)
+		return s.result(ofTypes(found, types), page), err
+	}
+	kind, key, ok := DecodeID(q.Get("parentid"))
+	switch {
+	case ok && kind == KindLibrary:
+		c, err := s.plex.SectionItems(key, plexQuery(q, firstOr(types, "")), page)
+		return ItemsResult{Items: ToItems(s.serverID, c.Metadata), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
+	case ok && kind == KindItem:
+		children := s.plex.Children
+		if slices.Contains(types, "episode") && q.Get("recursive") == "true" {
+			children = s.plex.AllLeaves
+		}
+		found, err := children(key)
+		return s.result(ofTypes(found, types), page), err
+	default:
+		return s.acrossLibraries(q, types, page)
+	}
+}
+
+func firstOr(list []string, fallback string) string {
+	if len(list) == 0 {
+		return fallback
+	}
+	return list[0]
+}
+
+// acrossLibraries serves queries without a parent, such as the home
+// screen's recently added row, by merging each requested type.
+func (s *Server) acrossLibraries(q url.Values, types []string, page Page) (ItemsResult, error) {
+	var found []PlexMetadata
+	for _, plexType := range types {
+		c, err := s.plex.LibraryItems(plexQuery(q, plexType), Page{Size: page.Start + page.Size})
+		if err != nil {
+			return ItemsResult{}, err
+		}
+		found = append(found, c.Metadata...)
+	}
+	if len(types) > 1 {
+		sortMerged(found, plexQuery(q, "").Get("sort"))
+	}
+	return s.result(found, page), nil
+}
+
+func sortMerged(found []PlexMetadata, sort string) {
+	field, order, _ := strings.Cut(sort, ":")
+	compare := func(a, b PlexMetadata) int { return cmp.Compare(a.TitleSort+a.Title, b.TitleSort+b.Title) }
+	if field == "addedAt" {
+		compare = func(a, b PlexMetadata) int { return cmp.Compare(a.AddedAt, b.AddedAt) }
+	}
+	slices.SortStableFunc(found, func(a, b PlexMetadata) int {
+		if order == "desc" {
+			return compare(b, a)
+		}
+		return compare(a, b)
+	})
+}
+
+func (s *Server) byIDs(ids []string) (ItemsResult, error) {
+	var found []PlexMetadata
+	for _, id := range ids {
+		m, err := s.plexItem(id)
+		if err != nil {
+			return ItemsResult{}, err
+		}
+		found = append(found, m)
+	}
+	return s.result(found, Page{Size: allItems}), nil
+}
+
+func (s *Server) plexItem(id string) (PlexMetadata, error) {
+	kind, key, ok := DecodeID(strings.ReplaceAll(id, "-", ""))
+	if !ok || kind != KindItem {
+		return PlexMetadata{}, errNotFound
+	}
+	return s.plex.Item(key)
+}
+
+func (s *Server) libraries() ([]Item, error) {
+	sections, err := s.plex.Sections()
+	views := []Item{}
+	for _, section := range sections {
+		if collection, ok := collectionTypes[section.Type]; ok {
+			views = append(views, Item{
+				Id:             EncodeID(KindLibrary, section.Key),
+				ServerId:       s.serverID,
+				Name:           section.Title,
+				Type:           "CollectionFolder",
+				CollectionType: collection,
+				IsFolder:       true,
+			})
+		}
+	}
+	return views, err
+}
+
+func (s *Server) views(w http.ResponseWriter, r *http.Request) {
+	views, err := s.libraries()
+	respond(w, ItemsResult{Items: views, TotalRecordCount: len(views)}, err)
+}
+
+func (s *Server) item(w http.ResponseWriter, r *http.Request) {
+	item, err := s.lookup(r.PathValue("id"))
+	respond(w, item, err)
+}
+
+func (s *Server) lookup(id string) (Item, error) {
+	if kind, _, ok := DecodeID(id); ok && kind == KindLibrary {
+		views, err := s.libraries()
+		if i := slices.IndexFunc(views, func(v Item) bool { return v.Id == id }); i >= 0 {
+			return views[i], err
+		}
+		return Item{}, errNotFound
+	}
+	m, err := s.plexItem(id)
+	if err != nil {
+		return Item{}, err
+	}
+	item, ok := ToItem(s.serverID, m)
+	if !ok {
+		return Item{}, errNotFound
+	}
+	return item, nil
+}
+
+func (s *Server) latest(w http.ResponseWriter, r *http.Request) {
+	items, err := s.latestItems(query(r))
+	respond(w, items, err)
+}
+
+func (s *Server) latestItems(q url.Values) ([]Item, error) {
+	kind, key, ok := DecodeID(q.Get("parentid"))
+	if !ok || kind != KindLibrary {
+		return []Item{}, nil
+	}
+	sections, err := s.plex.Sections()
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(sections, func(d PlexDirectory) bool { return d.Key == key })
+	if i < 0 {
+		return nil, errNotFound
+	}
+	limit := intParam(q, "limit")
+	if limit <= 0 {
+		limit = defaultLatestLimit
+	}
+	c, err := s.plex.SectionItems(key, plexLatest[sections[i].Type], Page{Size: limit})
+	return ToItems(s.serverID, c.Metadata), err
+}
+
+func inProgress(m PlexMetadata) bool { return m.ViewOffset > 0 }
+
+func (s *Server) resume(w http.ResponseWriter, r *http.Request) {
+	q := query(r)
+	var found []PlexMetadata
+	var err error
+	if kind, key, ok := DecodeID(q.Get("parentid")); ok && kind == KindItem {
+		found, err = s.plex.AllLeaves(key)
+	} else {
+		found, err = s.plex.OnDeck()
+	}
+	found = slices.DeleteFunc(found, func(m PlexMetadata) bool { return !inProgress(m) })
+	respond(w, s.result(found, paging(q)), err)
+}
+
+func (s *Server) nextUp(w http.ResponseWriter, r *http.Request) {
+	q := query(r)
+	var found []PlexMetadata
+	var err error
+	if seriesID := q.Get("seriesid"); seriesID != "" {
+		found, err = s.nextEpisode(seriesID)
+	} else {
+		found, err = s.plex.OnDeck()
+		found = slices.DeleteFunc(found, func(m PlexMetadata) bool { return m.Type != "episode" || inProgress(m) })
+	}
+	respond(w, s.result(found, paging(q)), err)
+}
+
+// nextEpisode is the first unwatched episode after the last watched one.
+func (s *Server) nextEpisode(seriesID string) ([]PlexMetadata, error) {
+	_, key, ok := DecodeID(seriesID)
+	if !ok {
+		return nil, errNotFound
+	}
+	episodes, err := s.plex.AllLeaves(key)
+	lastWatched := -1
+	for i, m := range episodes {
+		if m.ViewCount > 0 {
+			lastWatched = i
+		}
+	}
+	if lastWatched < 0 {
+		return nil, err
+	}
+	for _, m := range episodes[lastWatched+1:] {
+		if m.ViewCount == 0 {
+			return []PlexMetadata{m}, err
+		}
+	}
+	return nil, err
+}
+
+func (s *Server) seasons(w http.ResponseWriter, r *http.Request) {
+	_, key, _ := DecodeID(r.PathValue("id"))
+	found, err := s.plex.Children(key)
+	respond(w, s.result(ofTypes(found, []string{"season"}), Page{Size: allItems}), err)
+}
+
+// episodes keys off seasonId: Swiftfin puts the season id in the path too.
+func (s *Server) episodes(w http.ResponseWriter, r *http.Request) {
+	q := query(r)
+	var found []PlexMetadata
+	var err error
+	if _, season, ok := DecodeID(q.Get("seasonid")); ok {
+		found, err = s.plex.Children(season)
+	} else {
+		_, series, _ := DecodeID(r.PathValue("id"))
+		found, err = s.plex.AllLeaves(series)
+	}
+	respond(w, s.result(found, paging(q)), err)
+}
+
+func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request) {
+	var request struct{ MediaSourceId string }
+	json.NewDecoder(r.Body).Decode(&request)
+	item, err := s.lookup(r.PathValue("id"))
+	sources := item.MediaSources
+	if request.MediaSourceId != "" {
+		sources = slices.DeleteFunc(sources, func(m MediaSource) bool { return m.Id != request.MediaSourceId })
+	}
+	if err == nil && len(sources) == 0 {
+		err = errNotFound
+	}
+	respond(w, PlaybackInfo{MediaSources: sources, PlaySessionId: s.playSession(item.Id)}, err)
+}
+
+// PlayState is Jellyfin's reading of a playback position: whether the item
+// counts as watched, and where it resumes (0 for nowhere). Plex keeps no
+// resume point in the first minute, so neither does this.
+func PlayState(positionMs, durationMs int64) (played bool, resumeMs int64) {
+	if durationMs <= 0 {
+		return true, 0
+	}
+	fraction := float64(positionMs) / float64(durationMs)
+	switch {
+	case positionMs <= plexMinResumeMs:
+		return false, 0
+	case fraction < minResumeFraction:
+		return false, 0
+	case fraction > maxResumeFraction || positionMs >= durationMs:
+		return true, 0
+	case durationMs < minResumeDurationMs:
+		return true, 0
+	default:
+		return false, positionMs
+	}
+}
+
+// reportPlayback applies PlayState to Plex: progress reports only move the
+// resume point, a stop may also mark the item watched or drop the point.
+func (s *Server) reportPlayback(stopped bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var report PlaybackReport
+		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		m, err := s.plexItem(report.ItemId)
+		if err != nil {
+			respond(w, "", err)
+			return
+		}
+		durationMs := m.Duration
+		if part, ok := findPart(m, report.MediaSourceId); ok && part.Duration > 0 {
+			durationMs = part.Duration
+		}
+		played, resumeMs := PlayState(report.PositionTicks/ticksPerMillisecond, durationMs)
+		switch {
+		case resumeMs > 0:
+			err = s.plex.SetProgress(m.RatingKey, resumeMs)
+		case !stopped:
+		case played:
+			err = s.plex.SetPlayed(m.RatingKey, true)
+		case m.ViewCount == 0 && m.ViewOffset > 0:
+			// Plex drops a resume point only by unscrobbling; harmless when unwatched.
+			err = s.plex.SetPlayed(m.RatingKey, false)
+		}
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (s *Server) markPlayed(played bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		m, err := s.plexItem(r.PathValue("id"))
+		if err == nil {
+			err = s.plex.SetPlayed(m.RatingKey, played)
+		}
+		if err != nil {
+			respond(w, UserData{}, err)
+			return
+		}
+		item, err := s.lookup(r.PathValue("id"))
+		respond(w, item.UserData, err)
+	}
+}
+
+// favorite acknowledges without storing: Plex has no favorites.
+func (s *Server) favorite(w http.ResponseWriter, r *http.Request) {
+	item, err := s.lookup(r.PathValue("id"))
+	if item.UserData != nil {
+		item.UserData.IsFavorite = r.Method == http.MethodPost
+	}
+	respond(w, item.UserData, err)
+}
