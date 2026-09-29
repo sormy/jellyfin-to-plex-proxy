@@ -160,6 +160,17 @@ type User struct {
 	ServerId      string            `json:"ServerId"`
 	HasPassword   bool              `json:"HasPassword"`
 	Configuration UserConfiguration `json:"Configuration"`
+	Policy        UserPolicy        `json:"Policy"`
+}
+
+// UserPolicy gates client features: Swiftfin hides Play without
+// EnableMediaPlayback, and fails to decode without the provider ids.
+type UserPolicy struct {
+	IsAdministrator          bool   `json:"IsAdministrator"`
+	EnableMediaPlayback      bool   `json:"EnableMediaPlayback"`
+	EnableLiveTvManagement   bool   `json:"EnableLiveTvManagement"`
+	AuthenticationProviderId string `json:"AuthenticationProviderId"`
+	PasswordResetProviderId  string `json:"PasswordResetProviderId"`
 }
 
 type PublicSystemInfo struct {

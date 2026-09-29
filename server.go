@@ -11,8 +11,13 @@ import (
 	"strings"
 )
 
-// Jellyfin clients warn about servers older than their SDK.
-const jellyfinVersion = "10.11.0"
+// Swiftfin warns about servers older than its SDK.
+const jellyfinVersion = "12.0.0"
+
+const (
+	authenticationProvider = "Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider"
+	passwordResetProvider  = "Jellyfin.Server.Implementations.Users.DefaultPasswordResetProvider"
+)
 
 const idLength = 32
 
@@ -65,6 +70,11 @@ func (s *Server) user() User {
 		HasPassword: true,
 		Configuration: UserConfiguration{
 			MyMediaExcludes: []string{}, LatestItemsExcludes: []string{}, OrderedViews: []string{},
+		},
+		Policy: UserPolicy{
+			EnableMediaPlayback:      true,
+			AuthenticationProviderId: authenticationProvider,
+			PasswordResetProviderId:  passwordResetProvider,
 		},
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -28,13 +29,22 @@ const (
 )
 
 type client struct {
-	t     *testing.T
-	base  string
-	token string
-	live  bool
+	t        *testing.T
+	base     string
+	token    string
+	live     bool
+	signedIn User
 }
 
-const fakePassword = "secret"
+const (
+	fakePassword     = "secret"
+	swiftfinSDKMajor = 12
+)
+
+func intOf(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
+}
 
 func newFakeServer(t *testing.T) *Server {
 	plexURL, _ := url.Parse(newFakePlex(t).URL)
@@ -58,6 +68,7 @@ func newClient(t *testing.T) *client {
 		AuthenticateByName{Username: cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName), Pw: password},
 		http.StatusOK, &auth)
 	c.token = auth.AccessToken
+	c.signedIn = auth.User
 	return c
 }
 
@@ -189,6 +200,10 @@ func TestPublicEndpoints(t *testing.T) {
 	if len(info.Id) != idLength || info.ServerName == "" || info.Version == "" {
 		t.Errorf("system info %+v", info)
 	}
+	// Swiftfin warns about servers older than its SDK, 12.0.0.
+	if major, _, _ := strings.Cut(info.Version, "."); cmp.Compare(intOf(major), swiftfinSDKMajor) < 0 {
+		t.Errorf("version %s is older than Swiftfin's SDK", info.Version)
+	}
 	var users []User
 	c.expect(http.MethodGet, "/Users/Public", nil, nil, http.StatusOK, &users)
 	var quickConnect bool
@@ -210,6 +225,14 @@ func TestAuthentication(t *testing.T) {
 	c.expect(http.MethodGet, "/UsErS/mE", nil, nil, http.StatusOK, nil)
 	if me.Id == "" || me.Name == "" {
 		t.Errorf("me %+v", me)
+	}
+	// Swiftfin shows no Play button without playback allowed, and rejects
+	// a policy lacking its provider ids.
+	for _, user := range []User{c.signedIn, me} {
+		policy := user.Policy
+		if !policy.EnableMediaPlayback || policy.IsAdministrator || policy.AuthenticationProviderId == "" || policy.PasswordResetProviderId == "" {
+			t.Errorf("policy %+v", policy)
+		}
 	}
 }
 
