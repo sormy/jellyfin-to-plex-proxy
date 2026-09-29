@@ -118,3 +118,26 @@ func TestMediaStreamsIndexExternalSubtitlesAfterEmbedded(t *testing.T) {
 		t.Errorf("defaults %d %d", *source.DefaultAudioStreamIndex, *source.DefaultSubtitleStreamIndex)
 	}
 }
+
+func TestDatedEpisodes(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		season, idx int
+		airDate     string
+		index       *int
+		premiere    string
+	}{
+		{"numbered", 2, 5, "2020-01-01", intPointer(5), "2020-01-01T00:00:00.000Z"},
+		{"dated by Plex", 2023, 10601, "2023-01-06", nil, "2023-01-06T00:00:00.000Z"},
+		{"dated by its number", 2023, 122501, "", nil, "2023-12-25T00:00:00.000Z"},
+		{"undecodable number", 2023, 7, "", nil, ""},
+	} {
+		item, _ := ToItem("s", PlexMetadata{
+			RatingKey: "9", Type: "episode", ParentIndex: tc.season, Index: tc.idx, OriginallyAvailableAt: tc.airDate,
+		})
+		sameIndex := (item.IndexNumber == nil) == (tc.index == nil) && (tc.index == nil || *item.IndexNumber == *tc.index)
+		if !sameIndex || item.PremiereDate != tc.premiere || *item.ParentIndexNumber != tc.season {
+			t.Errorf("%s: index %v, premiere %q", tc.name, item.IndexNumber, item.PremiereDate)
+		}
+	}
+}

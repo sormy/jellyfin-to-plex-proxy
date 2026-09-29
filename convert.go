@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"path"
 	"strconv"
@@ -32,6 +33,18 @@ func imageTag(plexPath string) string {
 		return ""
 	}
 	return path.Base(plexPath)
+}
+
+// Plex numbers the episodes of a season named by year as MMDDNN.
+const (
+	firstYearSeason     = 1000
+	datedEpisodeMonthOf = 10_000
+	datedEpisodeDayOf   = 100
+)
+
+func datedEpisodeDay(year, index int) string {
+	month, day := index/datedEpisodeMonthOf, index/datedEpisodeDayOf%datedEpisodeDayOf
+	return FormatDay(fmt.Sprintf("%04d-%02d-%02d", year, month, day))
 }
 
 func intPointer(n int) *int {
@@ -96,6 +109,11 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 		item.MediaType = "Video"
 		item.IndexNumber = intPointer(m.Index)
 		item.ParentIndexNumber = intPointer(m.ParentIndex)
+		if m.ParentIndex >= firstYearSeason {
+			// Jellyfin files dated episodes by air date, not by number.
+			item.IndexNumber = nil
+			item.PremiereDate = cmp.Or(item.PremiereDate, datedEpisodeDay(m.ParentIndex, m.Index))
+		}
 		item.SeasonId = EncodeID(KindItem, m.ParentRatingKey)
 		item.ParentId = item.SeasonId
 		item.SeasonName = m.ParentTitle
