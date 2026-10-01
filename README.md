@@ -193,7 +193,8 @@ stream URL is valid only with the play session the proxy signed for that item.
 
 - One user, the Plex owner. Plex managed users are not exposed.
 - Anyone on the network who knows the user name and password gets the owner's library: change the
-  defaults where the network is not yours alone.
+  defaults where the network is not yours alone. Five wrong passwords in a row lock a user name out
+  for 15 minutes; apps already signed in keep working.
 - Video plays as stored: the app must decode the file, as Swiftfin's default player does.
 - Only music transcodes, through Plex's transcoder, which loads codecs from Plex's data folder: that
   folder must not sit on a `noexec` mount.

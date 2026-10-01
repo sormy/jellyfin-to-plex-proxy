@@ -240,6 +240,29 @@ func TestAuthentication(t *testing.T) {
 	}
 }
 
+// TestSignInThrottle locks a user name after repeated wrong passwords. It
+// runs against the fake only: live, it would lock the real user out.
+func TestSignInThrottle(t *testing.T) {
+	c := newClient(t)
+	if c.live {
+		t.Skip("would lock the live user out")
+	}
+	signIn := func(password string) *http.Response {
+		resp := c.do(http.MethodPost, "/Users/AuthenticateByName", nil, AuthenticateByName{Username: defaultUserName, Pw: password})
+		resp.Body.Close()
+		return resp
+	}
+	for range make([]struct{}, maxFailedLogins) {
+		if resp := signIn("wrong"); resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("wrong password: %d", resp.StatusCode)
+		}
+	}
+	if resp := signIn(fakePassword); resp.StatusCode != http.StatusTooManyRequests || resp.Header.Get("Retry-After") == "" {
+		t.Errorf("right password while locked: %d, Retry-After %q", resp.StatusCode, resp.Header.Get("Retry-After"))
+	}
+	c.expect(http.MethodGet, "/Users/Me", nil, nil, http.StatusOK, nil)
+}
+
 func TestLibraries(t *testing.T) {
 	c := newClient(t)
 	views := c.items("/UserViews", nil)

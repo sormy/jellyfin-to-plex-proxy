@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Swiftfin warns about servers older than its SDK.
@@ -34,6 +36,7 @@ type Server struct {
 	serverID   string
 	serverName string
 	mux        *http.ServeMux
+	logins     *LoginThrottle
 }
 
 func NewServer(plex *Plex, config Config) (*Server, error) {
@@ -47,6 +50,7 @@ func NewServer(plex *Plex, config Config) (*Server, error) {
 		serverID:   identity.MachineIdentifier[:idLength],
 		serverName: identity.FriendlyName,
 		mux:        http.NewServeMux(),
+		logins:     NewLoginThrottle(time.Now),
 	}
 	s.routes()
 	return s, nil
@@ -287,10 +291,17 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if wait := s.logins.Locked(request.Username); wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		http.Error(w, "too many failed sign-ins; try again later", http.StatusTooManyRequests)
+		return
+	}
 	nameMatches := strings.EqualFold(request.Username, s.config.UserName)
 	if !nameMatches || !hmac.Equal([]byte(request.Pw), []byte(s.config.Password)) {
+		s.logins.Failed(request.Username)
 		http.Error(w, "invalid user name or password", http.StatusUnauthorized)
 		return
 	}
+	s.logins.Succeeded(request.Username)
 	writeJSON(w, AuthenticationResult{User: s.user(), AccessToken: s.accessToken(), ServerId: s.serverID})
 }
