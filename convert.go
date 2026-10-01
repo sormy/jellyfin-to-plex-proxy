@@ -16,10 +16,11 @@ const (
 )
 
 var itemTypes = map[string]string{
-	"movie":   "Movie",
-	"show":    "Series",
-	"season":  "Season",
-	"episode": "Episode",
+	"movie":      "Movie",
+	"show":       "Series",
+	"season":     "Season",
+	"episode":    "Episode",
+	"collection": "BoxSet",
 }
 
 var streamTypes = map[int]string{1: "Video", 2: "Audio", 3: "Subtitle"}
@@ -91,6 +92,10 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 	switch m.Type {
 	case "movie":
 		item.MediaType = "Video"
+		item.PrimaryImageAspectRatio = posterAspectRatio
+	case "collection":
+		item.IsFolder = true
+		item.ChildCount = m.ChildCount
 		item.PrimaryImageAspectRatio = posterAspectRatio
 	case "show":
 		item.IsFolder = true

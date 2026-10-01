@@ -243,6 +243,11 @@ func (p *Plex) OnDeck() ([]PlexMetadata, error) {
 	return c.Metadata, err
 }
 
+func (p *Plex) Collections(section string) ([]PlexMetadata, error) {
+	c, err := p.get("/library/sections/"+section+"/collections", nil, nil)
+	return c.Metadata, err
+}
+
 func (p *Plex) LibraryItems(query url.Values, page Page) (PlexContainer, error) {
 	return p.get("/library/all", query, page.header())
 }

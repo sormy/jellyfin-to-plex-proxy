@@ -25,6 +25,7 @@ const (
 	fakeShowSection     = "2"
 	fakeMusicSection    = "3"
 	fakeSeriesKey       = "200"
+	fakeCollectionKey   = "150"
 	fakePartFileSize    = 4096
 	fakeSubtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nhello\n"
 	fakeMaxImageSide    = 16384
@@ -35,15 +36,16 @@ const (
 // fakePlex is an in-memory Plex Media Server: the subset of its API the
 // proxy calls, with watch state that changes as Plex's would.
 type fakePlex struct {
-	mu    sync.Mutex
-	items map[string]*PlexMetadata
-	order []string
-	clock int64
-	mux   *http.ServeMux
+	mu      sync.Mutex
+	items   map[string]*PlexMetadata
+	members map[string][]string
+	order   []string
+	clock   int64
+	mux     *http.ServeMux
 }
 
 func newFakePlex(t *testing.T) *httptest.Server {
-	p := &fakePlex{items: map[string]*PlexMetadata{}, clock: 1_700_000_000, mux: http.NewServeMux()}
+	p := &fakePlex{items: map[string]*PlexMetadata{}, members: map[string][]string{}, clock: 1_700_000_000, mux: http.NewServeMux()}
 	p.seed()
 	p.routes()
 	server := httptest.NewServer(p)
@@ -54,7 +56,7 @@ func newFakePlex(t *testing.T) *httptest.Server {
 func (p *fakePlex) add(m PlexMetadata) {
 	p.clock += 100
 	m.AddedAt = p.clock
-	m.LibrarySectionID = map[bool]int{true: 1, false: 2}[m.Type == "movie"]
+	m.LibrarySectionID = map[bool]int{true: 1, false: 2}[m.Type == "movie" || m.Type == "collection"]
 	m.Thumb = fmt.Sprintf("/library/metadata/%s/thumb/%d", m.RatingKey, p.clock)
 	if m.Type != "episode" {
 		m.Art = fmt.Sprintf("/library/metadata/%s/art/%d", m.RatingKey, p.clock)
@@ -86,6 +88,8 @@ func (p *fakePlex) seed() {
 	// Plex merges versions of one title, as a trailer filed beside the movie.
 	first := p.items["101"]
 	first.Media = append(fakeMedia(1001, fakeTrailerMs, fakeBitrate/2), first.Media...)
+	p.add(PlexMetadata{RatingKey: fakeCollectionKey, Type: "collection", Title: "Fake Saga", ChildCount: 2})
+	p.members[fakeCollectionKey] = []string{"101", "102"}
 	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
 	p.addShow("300", "The Other Show", 1, 1)
 }
@@ -142,7 +146,17 @@ func (p *fakePlex) routes() {
 		p.write(w, PlexContainer{Metadata: []PlexMetadata{p.view(m)}})
 	})
 	p.mux.HandleFunc("GET /library/metadata/{key}/children", func(w http.ResponseWriter, r *http.Request) {
-		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.ParentRatingKey == r.PathValue("key") })})
+		key := r.PathValue("key")
+		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool {
+			return m.ParentRatingKey == key || slices.Contains(p.members[key], m.RatingKey)
+		})})
+	})
+	p.mux.HandleFunc("GET /library/sections/{section}/collections", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("section") != fakeMovieSection {
+			p.write(w, PlexContainer{})
+			return
+		}
+		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.Type == "collection" })})
 	})
 	p.mux.HandleFunc("GET /library/metadata/{key}/allLeaves", func(w http.ResponseWriter, r *http.Request) {
 		// Plex answers allLeaves only for shows; a season gets an empty list.

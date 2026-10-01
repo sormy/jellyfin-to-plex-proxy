@@ -199,6 +199,13 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 	}
 	kind, key, ok := DecodeID(q.Get("parentid"))
 	switch {
+	case ok && kind == KindLibrary && key == collectionsKey:
+		sections, err := s.plex.Sections()
+		if err != nil {
+			return ItemsResult{}, err
+		}
+		collections, err := s.collections(sections)
+		return s.result(collections, page), err
 	case ok && kind == KindLibrary:
 		section, err := s.section(key)
 		if err != nil {
@@ -316,7 +323,46 @@ func (s *Server) libraries() ([]Item, error) {
 		})
 		err = cmp.Or(err, countErr, playableErr)
 	}
-	return views, err
+	collections, collectionsErr := s.collections(sections)
+	if len(collections) > 0 {
+		movies := 0
+		for _, c := range collections {
+			movies += c.ChildCount
+		}
+		views = append(views, Item{
+			Id:                 EncodeID(KindLibrary, collectionsKey),
+			ServerId:           s.serverID,
+			Name:               collectionsName,
+			Type:               "CollectionFolder",
+			CollectionType:     "boxsets",
+			IsFolder:           true,
+			ChildCount:         len(collections),
+			RecursiveItemCount: movies,
+		})
+	}
+	return views, cmp.Or(err, collectionsErr)
+}
+
+// collectionsKey names the library of every Plex collection; no Plex
+// section has key 0.
+const (
+	collectionsKey  = "0"
+	collectionsName = "Collections"
+)
+
+func (s *Server) collections(sections []PlexDirectory) ([]PlexMetadata, error) {
+	var found []PlexMetadata
+	for _, section := range sections {
+		if _, ok := collectionTypes[section.Type]; !ok {
+			continue
+		}
+		collections, err := s.plex.Collections(section.Key)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, collections...)
+	}
+	return found, nil
 }
 
 // count asks Plex for a total alone: a page of no items still carries it.
@@ -356,6 +402,16 @@ func (s *Server) virtualFolders(w http.ResponseWriter, r *http.Request) {
 		}
 		folders = append(folders, folder)
 	}
+	// Collections live in the libraries above; Infuse skips a folder without locations.
+	if collections, collectionsErr := s.collections(sections); len(collections) > 0 {
+		folder := VirtualFolder{Name: collectionsName, ItemId: EncodeID(KindLibrary, collectionsKey), CollectionType: "boxsets"}
+		for _, f := range folders {
+			folder.Locations = append(folder.Locations, f.Locations...)
+		}
+		folders = append(folders, folder)
+	} else {
+		err = cmp.Or(err, collectionsErr)
+	}
 	respond(w, folders, err)
 }
 
@@ -390,7 +446,7 @@ func (s *Server) latest(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) latestItems(q url.Values) ([]Item, error) {
 	kind, key, ok := DecodeID(q.Get("parentid"))
-	if !ok || kind != KindLibrary {
+	if !ok || kind != KindLibrary || key == collectionsKey {
 		return []Item{}, nil
 	}
 	section, err := s.section(key)

@@ -244,6 +244,9 @@ func TestLibraries(t *testing.T) {
 		t.Fatal("no libraries")
 	}
 	for _, view := range views.Items {
+		if view.CollectionType == "boxsets" {
+			continue
+		}
 		t.Run(view.Name, func(t *testing.T) {
 			c := &client{t: t, base: c.base, token: c.token}
 			if c.item(view.Id).CollectionType != view.CollectionType {
@@ -280,6 +283,27 @@ func TestLibraries(t *testing.T) {
 
 // TestLibraryTiles asks as Swiftfin's media screen does: any kind of video
 // under each library, whose images make the library's tile.
+// TestCollections expects every Plex collection as a box set under one
+// Collections library, its movies as its children.
+func TestCollections(t *testing.T) {
+	c := newClient(t)
+	views := c.items("/UserViews", nil).Items
+	i := slices.IndexFunc(views, func(v Item) bool { return v.CollectionType == "boxsets" })
+	if i < 0 {
+		t.Skip("no Plex collections")
+	}
+	sets := c.items("/Items", url.Values{"parentId": {views[i].Id}}).Items
+	if len(sets) == 0 || len(sets) != views[i].ChildCount || sets[0].Type != "BoxSet" {
+		t.Fatalf("box sets %+v", sets)
+	}
+	movies := c.items("/Items", url.Values{"parentId": {sets[0].Id}}).Items
+	if len(movies) == 0 || len(movies) != sets[0].ChildCount || movies[0].Type != "Movie" {
+		t.Errorf("%s holds %d movies, counts %d", sets[0].Name, len(movies), sets[0].ChildCount)
+	}
+	var latest []Item
+	c.expect(http.MethodGet, "/Items/Latest", url.Values{"parentId": {views[i].Id}}, nil, http.StatusOK, &latest)
+}
+
 func TestLibraryTiles(t *testing.T) {
 	c := newClient(t)
 	for _, view := range c.items("/UserViews", nil).Items {
@@ -290,7 +314,10 @@ func TestLibraryTiles(t *testing.T) {
 		if len(tile.Items) == 0 || tile.Items[0].ImageTags["Primary"] == "" {
 			t.Errorf("%s tile: %+v", view.Name, tile.Items)
 		}
-		foreign := map[string]string{"movies": "Series", "tvshows": "Movie"}[view.CollectionType]
+		foreign, ok := map[string]string{"movies": "Series", "tvshows": "Movie"}[view.CollectionType]
+		if !ok {
+			continue
+		}
 		if other := c.items("/Items", url.Values{"parentId": {view.Id}, "includeItemTypes": {foreign}}); len(other.Items) > 0 {
 			t.Errorf("%s holds %d of %s", view.Name, len(other.Items), foreign)
 		}
