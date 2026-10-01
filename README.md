@@ -168,7 +168,8 @@ stream URL is valid only with the play session the proxy signed for that item.
 - One user, the Plex owner. Plex managed users are not exposed.
 - Anyone on the network who knows the user name and password gets the owner's library: change the
   defaults where the network is not yours alone.
-- Direct play only, no transcoding: the app must decode the file. Swiftfin's default player does.
+- Video plays as stored: the app must decode the file, as Swiftfin's default player does. Only music
+  transcodes, through Plex, to AAC.
 - Movie, show and music libraries, and Plex collections: no photos or Live TV.
 - Tag and language filters and people are empty.
 
