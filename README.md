@@ -140,14 +140,16 @@ must not sit on a `noexec` mount.
 
 ## How it maps
 
-| Jellyfin                            | Plex                                       |
-| ----------------------------------- | ------------------------------------------ |
-| libraries                           | movie and show sections                    |
-| `Movie` `Series` `Season` `Episode` | `movie` `show` `season` `episode`          |
-| resume, next up                     | on deck                                    |
-| played, unplayed                    | `/:/scrobble`, `/:/unscrobble`             |
-| playback progress                   | `/:/progress`                              |
-| stream, image, subtitle             | the part, `/photo/:/transcode`, the stream |
+| Jellyfin                            | Plex                                                  |
+| ----------------------------------- | ----------------------------------------------------- |
+| libraries                           | movie, show and music sections, and collections       |
+| `Movie` `Series` `Season` `Episode` | `movie` `show` `season` `episode`                     |
+| resume, next up                     | on deck                                               |
+| played, unplayed                    | `/:/scrobble`, `/:/unscrobble`; a song when it starts |
+| favorites                           | the top rating, 10, as Plexamp loves                  |
+| playlists, genres                   | Plex playlists, Plex genres                           |
+| playback progress                   | `/:/progress`                                         |
+| stream, image, subtitle             | the part, `/photo/:/transcode`, the stream            |
 
 A stopped position is read as Jellyfin reads it:
 
@@ -168,8 +170,7 @@ stream URL is valid only with the play session the proxy signed for that item.
   defaults where the network is not yours alone.
 - Direct play only, no transcoding: the app must decode the file. Swiftfin's default player does.
 - Movie, show and music libraries, and Plex collections: no photos or Live TV.
-- Favorites are acknowledged, not stored — Plex has none.
-- Genre, tag and language filters and people are empty.
+- Tag and language filters and people are empty.
 
 ## License
 
