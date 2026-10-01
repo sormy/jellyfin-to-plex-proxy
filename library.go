@@ -154,6 +154,9 @@ func plexQuery(q url.Values, plexType string) url.Values {
 			v.Set(f[0], f[1])
 		}
 	}
+	if favoritesOnly(q) {
+		v.Set("userRating", strconv.Itoa(lovedRating))
+	}
 	switch q.Get("isplayed") {
 	case "true":
 		v.Set("unwatched", "0")
@@ -164,6 +167,10 @@ func plexQuery(q url.Values, plexType string) url.Values {
 		v.Set("year", strings.Join(years, ","))
 	}
 	return v
+}
+
+func favoritesOnly(q url.Values) bool {
+	return q.Get("isfavorite") == "true" || slices.ContainsFunc(q["filters"], func(f string) bool { return strings.EqualFold(f, "IsFavorite") })
 }
 
 func (s *Server) result(found []PlexMetadata, page Page) ItemsResult {
@@ -203,8 +210,6 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		return empty, nil
 	case len(q["ids"]) > 0:
 		return s.byIDs(q["ids"])
-	case q.Get("isfavorite") == "true" || slices.ContainsFunc(q["filters"], func(f string) bool { return strings.EqualFold(f, "IsFavorite") }):
-		return empty, nil
 	case q.Get("searchterm") != "":
 		if page.Start > 0 {
 			return empty, nil
@@ -241,6 +246,9 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 			children = s.episodesUnder
 		}
 		found, err := children(key)
+		if favoritesOnly(q) {
+			found = slices.DeleteFunc(found, func(m PlexMetadata) bool { return m.UserRating < lovedRating })
+		}
 		return s.result(ofTypes(found, types), page), err
 	default:
 		return s.acrossLibraries(q, types, page)
@@ -699,11 +707,21 @@ func (s *Server) markPlayed(played bool) http.HandlerFunc {
 	}
 }
 
-// favorite acknowledges without storing: Plex has no favorites.
+// favorite stores a favorite as Plex's top rating; unmarking clears only
+// that rating, so stars given in Plex survive.
 func (s *Server) favorite(w http.ResponseWriter, r *http.Request) {
-	item, err := s.lookup(r.PathValue("id"))
-	if item.UserData != nil {
-		item.UserData.IsFavorite = r.Method == http.MethodPost
+	m, err := s.plexItem(r.PathValue("id"))
+	switch {
+	case err != nil:
+	case r.Method == http.MethodPost:
+		err = s.plex.Rate(m.RatingKey, lovedRating)
+	case m.UserRating >= lovedRating:
+		err = s.plex.Rate(m.RatingKey, clearedRating)
 	}
+	if err != nil {
+		respond(w, UserData{}, err)
+		return
+	}
+	item, err := s.lookup(r.PathValue("id"))
 	respond(w, item.UserData, err)
 }

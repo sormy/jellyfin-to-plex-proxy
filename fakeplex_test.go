@@ -216,6 +216,15 @@ func (p *fakePlex) routes() {
 			m.ViewCount, m.ViewOffset = 0, 0
 		}
 	})
+	p.mux.HandleFunc("PUT /:/rate", func(w http.ResponseWriter, r *http.Request) {
+		m := p.items[r.URL.Query().Get("key")]
+		rating, err := strconv.ParseFloat(r.URL.Query().Get("rating"), 64)
+		if m == nil || err != nil {
+			http.Error(w, "bad rating", http.StatusBadRequest)
+			return
+		}
+		m.UserRating = max(rating, 0)
+	})
 	p.mux.HandleFunc("GET /:/progress", func(w http.ResponseWriter, r *http.Request) {
 		m := p.items[r.URL.Query().Get("key")]
 		position, _ := strconv.ParseInt(r.URL.Query().Get("time"), 10, 64)
@@ -382,10 +391,12 @@ func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string,
 	q := r.URL.Query()
 	plexType = cmp.Or(fakeTypeNames[q.Get("type")], plexType)
 	unwatched := q.Get("unwatched")
+	rating, rated := q.Get("userRating"), q.Has("userRating")
 	found := p.matching(func(m *PlexMetadata) bool {
 		played := m.ViewCount > 0
 		inSection := holds == nil || slices.Contains(holds, m.Type)
-		return m.Type == plexType && inSection && (unwatched == "" || (unwatched == "1") != played)
+		ratingMatches := !rated || strconv.FormatFloat(m.UserRating, 'f', -1, 64) == rating
+		return m.Type == plexType && inSection && ratingMatches && (unwatched == "" || (unwatched == "1") != played)
 	})
 	field, order, _ := strings.Cut(q.Get("sort"), ":")
 	key := map[string]func(PlexMetadata) string{

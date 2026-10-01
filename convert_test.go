@@ -180,3 +180,15 @@ func TestDuplicateTrackTitlesNumbered(t *testing.T) {
 		t.Errorf("got %v, want %v", titles, want)
 	}
 }
+
+func TestFavoriteIsTopRating(t *testing.T) {
+	for _, tc := range []struct {
+		rating   float64
+		favorite bool
+	}{{0, false}, {6, false}, {10, true}} {
+		item, _ := ToItem("s", PlexMetadata{RatingKey: "1", Type: "track", UserRating: tc.rating})
+		if item.UserData.IsFavorite != tc.favorite {
+			t.Errorf("rating %v: favorite %v", tc.rating, item.UserData.IsFavorite)
+		}
+	}
+}

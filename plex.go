@@ -85,6 +85,7 @@ type PlexMetadata struct {
 	ParentTitle           string      `json:"parentTitle"`
 	GrandparentTitle      string      `json:"grandparentTitle"`
 	LibrarySectionID      int         `json:"librarySectionID"`
+	UserRating            float64     `json:"userRating"`
 	Thumb                 string      `json:"thumb"`
 	Art                   string      `json:"art"`
 	GrandparentThumb      string      `json:"grandparentThumb"`
@@ -287,6 +288,15 @@ func (p *Plex) SetPlayed(ratingKey string, played bool) error {
 		path = "/:/scrobble"
 	}
 	return p.call(http.MethodGet, path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
+}
+
+// Rate sets the owner's star rating, 0 to 10; -1 clears it.
+func (p *Plex) Rate(ratingKey string, rating int) error {
+	return p.call(http.MethodPut, "/:/rate", url.Values{
+		"key":        {ratingKey},
+		"identifier": {plexLibraryIdentifier},
+		"rating":     {strconv.Itoa(rating)},
+	}, nil)
 }
 
 // SelectStreams makes Plex remember a file's audio and subtitle choice; a

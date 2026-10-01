@@ -711,6 +711,7 @@ func TestHomeRowsAndUserRoutes(t *testing.T) {
 	c.expect(http.MethodGet, user+"/Items/"+series.Id, nil, nil, http.StatusOK, &item)
 	listed := c.items(user+"/Items", url.Values{"parentId": {views.Items[0].Id}, "limit": {"1"}})
 	var favorite UserData
+	t.Cleanup(func() { c.try(http.MethodDelete, user+"/FavoriteItems/"+series.Id, nil) })
 	c.expect(http.MethodPost, user+"/FavoriteItems/"+series.Id, nil, nil, http.StatusOK, &favorite)
 	if len(views.Items) == 0 || item.Id != series.Id || len(listed.Items) != 1 || !favorite.IsFavorite {
 		t.Errorf("user routes: %d views, item %q, %d listed, favorite %v", len(views.Items), item.Name, len(listed.Items), favorite.IsFavorite)
@@ -992,17 +993,43 @@ func TestBitrateTest(t *testing.T) {
 	}
 }
 
-func TestFavoriteIsAcknowledged(t *testing.T) {
+// TestFavorites stores a favorite as Plex's top rating and lists it among
+// favorites, for an episode and a song, then clears both.
+func TestFavorites(t *testing.T) {
 	c := newClient(t)
-	id := c.series().Id
-	for _, tc := range []struct {
-		method   string
-		favorite bool
-	}{{http.MethodPost, true}, {http.MethodDelete, false}} {
-		var data UserData
-		c.expect(tc.method, "/UserFavoriteItems/"+id, nil, nil, http.StatusOK, &data)
-		if data.IsFavorite != tc.favorite || data.Key == "" {
-			t.Errorf("%s: %+v", tc.method, data)
+	views := c.items("/UserViews", nil).Items
+	episode := c.episodes(c.series())[0]
+	targets := []struct {
+		item     Item
+		library  string
+		itemType string
+	}{{episode, c.item(c.series().Id).ParentId, "Episode"}}
+	if i := slices.IndexFunc(views, func(v Item) bool { return v.CollectionType == "music" }); i >= 0 {
+		tracks := c.items("/Items", url.Values{"ParentId": {views[i].Id}, "IncludeItemTypes": {"Audio"}, "Recursive": {"true"}, "Limit": {"1"}})
+		targets = append(targets, struct {
+			item     Item
+			library  string
+			itemType string
+		}{tracks.Items[0], views[i].Id, "Audio"})
+	}
+	for _, target := range targets {
+		if target.item.UserData.IsFavorite {
+			t.Skipf("%s is already a favorite", target.item.Name)
+		}
+		t.Cleanup(func() { c.try(http.MethodDelete, "/UserFavoriteItems/"+target.item.Id, nil) })
+		favorites := func() []Item {
+			return c.items("/Items", url.Values{
+				"ParentId": {target.library}, "IncludeItemTypes": {target.itemType}, "Recursive": {"true"}, "Filters": {"IsFavorite"},
+			}).Items
+		}
+		for _, favorite := range []bool{true, false} {
+			method := map[bool]string{true: http.MethodPost, false: http.MethodDelete}[favorite]
+			var data UserData
+			c.expect(method, "/UserFavoriteItems/"+target.item.Id, nil, nil, http.StatusOK, &data)
+			listed := slices.ContainsFunc(favorites(), func(it Item) bool { return it.Id == target.item.Id })
+			if data.IsFavorite != favorite || c.item(target.item.Id).UserData.IsFavorite != favorite || listed != favorite {
+				t.Errorf("%s favorite %v: response %v, listed %v", target.item.Name, favorite, data.IsFavorite, listed)
+			}
 		}
 	}
 }

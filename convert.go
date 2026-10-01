@@ -41,6 +41,12 @@ func imageTag(plexPath string) string {
 	return path.Base(plexPath)
 }
 
+// Favorites are Plex's top rating, which Plexamp shows as loved.
+const (
+	lovedRating   = 10
+	clearedRating = -1
+)
+
 // Plex numbers the episodes of a season named by year as MMDDNN.
 const (
 	firstYearSeason     = 1000
@@ -187,6 +193,7 @@ func ToItems(serverID string, found []PlexMetadata) []Item {
 
 func toUserData(m PlexMetadata) *UserData {
 	data := &UserData{
+		IsFavorite:            m.UserRating >= lovedRating,
 		Key:                   m.RatingKey,
 		ItemId:                EncodeID(KindItem, m.RatingKey),
 		PlaybackPositionTicks: m.ViewOffset * ticksPerMillisecond,
