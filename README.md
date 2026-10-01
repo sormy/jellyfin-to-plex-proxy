@@ -107,7 +107,7 @@ Tested with:
 - Swiftfin on Apple TV
 - Swiftfin on macOS
 - Infuse on Apple TV, Direct Mode
-- Finamp, against the test suite; on a device, not yet
+- Finamp, the App Store version
 
 Other Jellyfin apps may call endpoints the proxy lacks: they log as `404` in the journal.
 
