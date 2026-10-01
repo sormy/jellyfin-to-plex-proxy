@@ -277,7 +277,7 @@ func (s *Server) systemInfo(w http.ResponseWriter, r *http.Request) {
 		Version:                jellyfinVersion,
 		ProductName:            "Jellyfin Server",
 		StartupWizardCompleted: true,
-		LocalAddress:           "http://" + r.Host,
+		LocalAddress:           map[bool]string{true: "https://", false: "http://"}[r.TLS != nil] + r.Host,
 	})
 }
 

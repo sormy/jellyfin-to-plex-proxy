@@ -21,13 +21,16 @@ From [Releases](https://github.com/sormy/jellyfin-to-plex-proxy/releases/latest)
 
 ## Configure
 
-| Variable            | Default                  | Meaning                     |
-| ------------------- | ------------------------ | --------------------------- |
-| `PLEX_TOKEN`        | required                 | the Plex owner's token      |
-| `JELLYFIN_USERNAME` | `jellyfin`               | user name apps sign in with |
-| `JELLYFIN_PASSWORD` | `jellyfin`               | password apps sign in with  |
-| `PLEX_URL`          | `http://127.0.0.1:32400` | Plex Media Server           |
-| `LISTEN`            | `:8096`                  | Jellyfin API address        |
+| Variable            | Default                  | Meaning                                            |
+| ------------------- | ------------------------ | -------------------------------------------------- |
+| `PLEX_TOKEN`        | required                 | the Plex owner's token                             |
+| `JELLYFIN_USERNAME` | `jellyfin`               | user name apps sign in with                        |
+| `JELLYFIN_PASSWORD` | `jellyfin`               | password apps sign in with                         |
+| `PLEX_URL`          | `http://127.0.0.1:32400` | Plex Media Server                                  |
+| `LISTEN`            | `:8096`                  | Jellyfin API address                               |
+| `TLS_CERT`          | —                        | certificate chain; with `TLS_KEY`, serve HTTPS too |
+| `TLS_KEY`           | —                        | its private key                                    |
+| `LISTEN_TLS`        | `:8920`                  | HTTPS address                                      |
 
 ## Plex token
 
@@ -70,6 +73,26 @@ systemctl enable --now jellyfin-to-plex-proxy
 ```
 
 `journalctl -u jellyfin-to-plex-proxy -f` logs every request with the app's name and the status.
+
+### HTTPS
+
+Apple's apps trust only a certificate from a public authority, such as Let's Encrypt, for a name
+that resolves to the host: a self-signed one is refused. With one, hand it to the service through
+systemd, which reads the key as root — on the Plex host, as root:
+
+```sh
+mkdir -p /etc/systemd/system/jellyfin-to-plex-proxy.service.d
+cat >/etc/systemd/system/jellyfin-to-plex-proxy.service.d/tls.conf <<'UNIT'
+[Service]
+LoadCredential=tls.crt:/etc/letsencrypt/live/<name>/fullchain.pem
+LoadCredential=tls.key:/etc/letsencrypt/live/<name>/privkey.pem
+Environment=TLS_CERT=%d/tls.crt TLS_KEY=%d/tls.key
+UNIT
+systemctl daemon-reload && systemctl restart jellyfin-to-plex-proxy
+```
+
+Apps then connect to `https://<name>:8920`; plain HTTP stays on `8096`. systemd copies the
+certificate at start: restart the service after a renewal.
 
 ### macOS
 

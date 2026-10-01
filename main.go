@@ -3,6 +3,7 @@ package main
 
 import (
 	"cmp"
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net"
@@ -16,6 +17,7 @@ const (
 	discoveryAddress = ":7359"
 	discoveryProbe   = "who is jellyfinserver?"
 	defaultListen    = ":8096"
+	defaultListenTLS = ":8920"
 	defaultPlexURL   = "http://127.0.0.1:32400"
 	defaultUserName  = "jellyfin"
 	defaultPassword  = "jellyfin"
@@ -52,8 +54,24 @@ func main() {
 	} else {
 		log.Printf("discovery: %v", err)
 	}
+	if cert, key := os.Getenv("TLS_CERT"), os.Getenv("TLS_KEY"); cert != "" && key != "" {
+		secure := &http.Server{Addr: cmp.Or(os.Getenv("LISTEN_TLS"), defaultListenTLS), Handler: server, TLSConfig: tlsConfig(cert, key)}
+		go func() {
+			log.Printf("serving %q over TLS on %s", server.serverName, secure.Addr)
+			log.Fatal(secure.ListenAndServeTLS("", ""))
+		}()
+	}
 	log.Printf("serving %q on %s", server.serverName, listen)
 	log.Fatal(http.ListenAndServe(listen, server))
+}
+
+// tlsConfig reads the certificate for every connection, so a renewed one
+// serves without a restart.
+func tlsConfig(certFile, keyFile string) *tls.Config {
+	return &tls.Config{GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		return &cert, err
+	}}
 }
 
 // answerDiscovery replies to the UDP broadcast clients send to find servers,
