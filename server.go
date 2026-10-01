@@ -211,9 +211,9 @@ func (s *Server) routes() {
 	s.private("GET /Items/{id}/File", s.audioFile)
 	s.private("GET /Audio/{id}/main.m3u8", s.audioPlaylist)
 	s.public("GET /Audio/{id}/session/{rest...}", s.audioSession)
-	s.private("POST /Sessions/Playing", s.reportPlayback(false))
-	s.private("POST /Sessions/Playing/Progress", s.reportPlayback(false))
-	s.private("POST /Sessions/Playing/Stopped", s.reportPlayback(true))
+	s.private("POST /Sessions/Playing", s.reportPlayback(playbackStarted))
+	s.private("POST /Sessions/Playing/Progress", s.reportPlayback(playbackProgressed))
+	s.private("POST /Sessions/Playing/Stopped", s.reportPlayback(playbackStopped))
 	for _, pattern := range []string{"/UserPlayedItems/{id}", "/Users/{userId}/PlayedItems/{id}"} {
 		s.private("POST "+pattern, s.markPlayed(true))
 		s.private("DELETE "+pattern, s.markPlayed(false))

@@ -650,9 +650,19 @@ func PlayState(positionMs, durationMs int64) (played bool, resumeMs int64) {
 	}
 }
 
-// reportPlayback applies PlayState to Plex: progress reports only move the
-// resume point, a stop may also mark the item watched or drop the point.
-func (s *Server) reportPlayback(stopped bool) http.HandlerFunc {
+// PlaybackEvent is which report a client sends: playback started, moved on, or stopped.
+type PlaybackEvent int
+
+const (
+	playbackStarted PlaybackEvent = iota
+	playbackProgressed
+	playbackStopped
+)
+
+// reportPlayback records a report in Plex. A song counts as played when it
+// starts and keeps no resume point, as Jellyfin has it; anything else follows
+// PlayState: progress moves the resume point, a stop may also mark it watched.
+func (s *Server) reportPlayback(event PlaybackEvent) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var report PlaybackReport
 		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
@@ -670,9 +680,12 @@ func (s *Server) reportPlayback(stopped bool) http.HandlerFunc {
 		}
 		played, resumeMs := PlayState(report.PositionTicks/ticksPerMillisecond, durationMs)
 		switch {
+		case m.Type == "track" && event == playbackStarted:
+			err = s.plex.SetPlayed(m.RatingKey, true)
+		case m.Type == "track":
 		case resumeMs > 0:
 			err = s.plex.SetProgress(m.RatingKey, resumeMs)
-		case !stopped:
+		case event != playbackStopped:
 		case played:
 			err = s.plex.SetPlayed(m.RatingKey, true)
 		case m.ViewCount == 0 && m.ViewOffset > 0:

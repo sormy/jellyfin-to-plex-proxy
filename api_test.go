@@ -952,6 +952,41 @@ func TestFinampRequiredFields(t *testing.T) {
 	}
 }
 
+// TestMusicPlays counts a song as played the moment it starts, as Jellyfin
+// does, without a resume point; it uses an unplayed song and unplays it after.
+func TestMusicPlays(t *testing.T) {
+	c := newClient(t)
+	views := c.items("/UserViews", nil).Items
+	i := slices.IndexFunc(views, func(v Item) bool { return v.CollectionType == "music" })
+	if i < 0 {
+		t.Skip("no music library")
+	}
+	tracks := c.items("/Items", url.Values{"ParentId": {views[i].Id}, "IncludeItemTypes": {"Audio"}, "Recursive": {"true"}, "isPlayed": {"false"}, "Limit": {"1"}}).Items
+	if len(tracks) == 0 {
+		t.Skip("no unplayed song")
+	}
+	track := tracks[0]
+	t.Cleanup(func() { c.try(http.MethodDelete, "/UserPlayedItems/"+track.Id, nil) })
+	runtimeMs := track.RunTimeTicks / ticksPerMillisecond
+	c.report("/Sessions/Playing", track, 0)
+	started := c.item(track.Id).UserData
+	if !started.Played || started.PlayCount != 1 || started.LastPlayedDate == "" {
+		t.Errorf("after start: %+v", started)
+	}
+	c.report("/Sessions/Playing/Progress", track, runtimeMs/2)
+	c.report("/Sessions/Playing/Stopped", track, runtimeMs/2)
+	if stopped := c.item(track.Id).UserData; stopped.PlayCount != 1 || stopped.PlaybackPositionTicks != 0 {
+		t.Errorf("after a stop midway: %+v", stopped)
+	}
+	recent := c.items("/Items", url.Values{
+		"ParentId": {views[i].Id}, "IncludeItemTypes": {"Audio"}, "Recursive": {"true"},
+		"SortBy": {"DatePlayed"}, "SortOrder": {"Descending"}, "Limit": {"1"},
+	}).Items
+	if len(recent) == 0 || recent[0].Id != track.Id {
+		t.Errorf("most recently played: %+v", recent)
+	}
+}
+
 // TestPlaylists lists Plex playlists and their tracks, as Finamp's
 // Playlists tab does.
 func TestPlaylists(t *testing.T) {
