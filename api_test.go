@@ -920,8 +920,20 @@ func TestFinampRequiredFields(t *testing.T) {
 	objects["MediaSource"], objects["MediaStream"] = item.MediaSources[0], streams[0]
 	for name, fields := range required {
 		for _, field := range fields {
-			if _, ok := objects[name][field]; !ok {
+			if value, ok := objects[name][field]; !ok || string(value) == "null" {
 				t.Errorf("%s lacks %s", name, field)
+			}
+		}
+	}
+	// Plex lists items without their streams; the list must still be a list.
+	var listed struct {
+		Items []struct{ MediaSources []map[string]json.RawMessage }
+	}
+	c.expect(http.MethodGet, "/Shows/"+c.series().Id+"/Episodes", nil, nil, http.StatusOK, &listed)
+	for _, it := range listed.Items {
+		for _, source := range it.MediaSources {
+			if streams := string(source["MediaStreams"]); !strings.HasPrefix(streams, "[") {
+				t.Fatalf("listed MediaStreams is %s, want a list", streams)
 			}
 		}
 	}

@@ -293,8 +293,10 @@ func ExternalSubtitles(streams []PlexStream) []PlexStream {
 	return external
 }
 
+// toMediaStreams never returns nil: Finamp fails on a null stream list, and
+// Plex lists items without their streams.
 func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaStream, *int, *int) {
-	var streams []MediaStream
+	streams := []MediaStream{}
 	var audio, subtitle *int
 	add := func(s PlexStream, index int) {
 		kind, ok := streamTypes[s.StreamType]
