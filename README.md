@@ -1,7 +1,7 @@
 # jellyfin-to-plex-proxy
 
-Serves a Plex library over the Jellyfin API, so Jellyfin apps — Swiftfin and Infuse on Apple TV,
-iPhone and iPad — browse and play it. Plex stays the only database: watch state, resume points and
+Serves a Plex library over the Jellyfin API, so Jellyfin apps — Swiftfin and Infuse for video,
+Finamp for music — browse and play it. Plex stays the only database: watch state, resume points and
 new media are Plex's, with nothing to sync.
 
 One small static binary. It listens where Jellyfin would (`8096`, discovery on UDP `7359`) and
@@ -96,16 +96,18 @@ Add the server — found on the LAN, or at `http://<host>:8096` — and sign in:
 `jellyfin` unless set otherwise. Sign-in survives restarts; changing the user name or password signs
 every app out.
 
-| App      | Add it as        | Setting                                     |
-| -------- | ---------------- | ------------------------------------------- |
-| Swiftfin | a server         | —                                           |
-| Infuse   | a Jellyfin share | Library Mode off (Direct Mode), the default |
+| App      | Add it as        | Setting                                                     |
+| -------- | ---------------- | ----------------------------------------------------------- |
+| Swiftfin | a server         | —                                                           |
+| Infuse   | a Jellyfin share | Library Mode off (Direct Mode), the default                 |
+| Finamp   | a server         | Transcoding on, for Ogg and other formats Apple cannot play |
 
 Tested with:
 
 - Swiftfin on Apple TV
 - Swiftfin on macOS
 - Infuse on Apple TV, Direct Mode
+- Finamp, against the test suite; on a device, not yet
 
 Other Jellyfin apps may call endpoints the proxy lacks: they log as `404` in the journal.
 
@@ -132,6 +134,9 @@ live proxy and its Plex.
 > The live run changes watch state on one series, `testSeries` in `api_test.go`, and restores its
 > watched flags and resume points. Play counts, last-viewed dates and Plex's history do not come
 > back: pick a series whose history you do not care about.
+
+Finamp's transcoding is Plex's transcoder: Plex loads codecs from its data folder, which therefore
+must not sit on a `noexec` mount.
 
 ## How it maps
 
@@ -162,7 +167,7 @@ stream URL is valid only with the play session the proxy signed for that item.
 - Anyone on the network who knows the user name and password gets the owner's library: change the
   defaults where the network is not yours alone.
 - Direct play only, no transcoding: the app must decode the file. Swiftfin's default player does.
-- Movie and show libraries only: no music, photos or Live TV.
+- Movie, show and music libraries, and Plex collections: no photos or Live TV.
 - Favorites are acknowledged, not stored — Plex has none.
 - Genre, tag and language filters and people are empty.
 
