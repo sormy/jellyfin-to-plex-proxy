@@ -821,6 +821,17 @@ func TestMusic(t *testing.T) {
 			t.Errorf("track %d: %+v", n, track)
 		}
 	}
+	var length int64
+	for _, track := range tracks {
+		length += track.RunTimeTicks
+	}
+	listed := c.items("/Items", url.Values{"ParentId": {library.Id}, "IncludeItemTypes": {"MusicAlbum"}, "Recursive": {"true"}}).Items
+	inLibrary := listed[slices.IndexFunc(listed, func(it Item) bool { return it.Id == album.Id })]
+	for _, a := range []Item{album, inLibrary, c.item(album.Id)} {
+		if a.RunTimeTicks != length || a.ChildCount != len(tracks) {
+			t.Errorf("%s: length %d, %d tracks; tracks sum to %d over %d", a.Name, a.RunTimeTicks, a.ChildCount, length, len(tracks))
+		}
+	}
 	track := tracks[0]
 	var info PlaybackInfo
 	c.expect(http.MethodGet, "/Items/"+track.Id+"/PlaybackInfo", nil, nil, http.StatusOK, &info)

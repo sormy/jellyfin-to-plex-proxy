@@ -331,12 +331,17 @@ func (p *fakePlex) view(m *PlexMetadata) PlexMetadata {
 	return v
 }
 
-// matching lists items as Plex lists do: without their streams.
+// matching lists items as Plex lists do: without their streams, and albums
+// without their track count.
 func (p *fakePlex) matching(keep func(*PlexMetadata) bool) []PlexMetadata {
 	found := []PlexMetadata{}
 	for _, k := range p.order {
 		if keep(p.items[k]) {
-			found = append(found, withoutStreams(p.view(p.items[k])))
+			listed := withoutStreams(p.view(p.items[k]))
+			if listed.Type == "album" {
+				listed.LeafCount = 0
+			}
+			found = append(found, listed)
 		}
 	}
 	return found
@@ -384,7 +389,9 @@ func (p *fakePlex) onDeck() []PlexMetadata {
 	return deck
 }
 
-var fakeTypeNames = map[string]string{"1": "movie", "2": "show", "3": "season", "4": "episode"}
+var fakeTypeNames = map[string]string{
+	"1": "movie", "2": "show", "3": "season", "4": "episode", "8": "artist", "9": "album", "10": "track",
+}
 
 // list answers a listing; a section holds only its own kinds of item.
 func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string, holds []string) {
@@ -392,11 +399,13 @@ func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string,
 	plexType = cmp.Or(fakeTypeNames[q.Get("type")], plexType)
 	unwatched := q.Get("unwatched")
 	rating, rated := q.Get("userRating"), q.Has("userRating")
+	albums := strings.Split(q.Get("album.id"), ",")
 	found := p.matching(func(m *PlexMetadata) bool {
 		played := m.ViewCount > 0
 		inSection := holds == nil || slices.Contains(holds, m.Type)
 		ratingMatches := !rated || strconv.FormatFloat(m.UserRating, 'f', -1, 64) == rating
-		return m.Type == plexType && inSection && ratingMatches && (unwatched == "" || (unwatched == "1") != played)
+		inAlbum := !q.Has("album.id") || slices.Contains(albums, m.ParentRatingKey)
+		return m.Type == plexType && inSection && ratingMatches && inAlbum && (unwatched == "" || (unwatched == "1") != played)
 	})
 	field, order, _ := strings.Cut(q.Get("sort"), ":")
 	key := map[string]func(PlexMetadata) string{

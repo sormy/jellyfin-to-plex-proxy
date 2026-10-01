@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 const plexLibraryIdentifier = "com.plexapp.plugins.library"
@@ -288,6 +289,13 @@ func (p *Plex) SetPlayed(ratingKey string, played bool) error {
 		path = "/:/scrobble"
 	}
 	return p.call(http.MethodGet, path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
+}
+
+// AlbumTracks lists the tracks of several albums of a section in one call.
+func (p *Plex) AlbumTracks(section string, albums []string) ([]PlexMetadata, error) {
+	query := url.Values{"type": {"10"}, "album.id": {strings.Join(albums, ",")}}
+	c, err := p.get("/library/sections/"+section+"/all", query, Page{Size: allItems}.header())
+	return c.Metadata, err
 }
 
 // Rate sets the owner's star rating, 0 to 10; -1 clears it.

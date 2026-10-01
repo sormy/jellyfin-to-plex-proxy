@@ -174,7 +174,7 @@ func favoritesOnly(q url.Values) bool {
 }
 
 func (s *Server) result(found []PlexMetadata, page Page) ItemsResult {
-	items := ToItems(s.serverID, found)
+	items := ToItems(s.serverID, s.withAlbumTotals(found))
 	return ItemsResult{Items: paginate(items, page), TotalRecordCount: len(items), StartIndex: page.Start}
 }
 
@@ -239,7 +239,7 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 			return empty, nil
 		}
 		c, err := s.plex.SectionItems(key, plexQuery(q, firstOr(held, "")), page)
-		return ItemsResult{Items: ToItems(s.serverID, c.Metadata), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
+		return ItemsResult{Items: ToItems(s.serverID, s.withAlbumTotals(c.Metadata)), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
 	case ok && kind == KindItem:
 		children := s.plex.Children
 		if (slices.Contains(types, "episode") || slices.Contains(types, "track")) && recursive {
@@ -461,7 +461,7 @@ func (s *Server) lookup(id string) (Item, error) {
 	if err != nil {
 		return Item{}, err
 	}
-	item, ok := ToItem(s.serverID, m)
+	item, ok := ToItem(s.serverID, s.withAlbumTotals([]PlexMetadata{m})[0])
 	if !ok {
 		return Item{}, errNotFound
 	}
@@ -487,7 +487,7 @@ func (s *Server) latestItems(q url.Values) ([]Item, error) {
 		limit = defaultLatestLimit
 	}
 	c, err := s.plex.SectionItems(key, plexLatest[section.Type], Page{Size: limit})
-	return ToItems(s.serverID, c.Metadata), err
+	return ToItems(s.serverID, s.withAlbumTotals(c.Metadata)), err
 }
 
 func (s *Server) section(key string) (PlexDirectory, error) {

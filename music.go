@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -22,6 +23,35 @@ var audioContentTypes = map[string]string{
 
 // Plex converts only to a target the client declares.
 const hlsAudioTarget = "add-transcode-target(type=musicProfile&context=streaming&protocol=hls&container=mpegts&audioCodec=aac)"
+
+// withAlbumTotals adds what Plex leaves off albums: their length and, in
+// lists, their track count, summed from one track query per section.
+func (s *Server) withAlbumTotals(found []PlexMetadata) []PlexMetadata {
+	bySection := map[int][]string{}
+	for _, m := range found {
+		if m.Type == "album" {
+			bySection[m.LibrarySectionID] = append(bySection[m.LibrarySectionID], m.RatingKey)
+		}
+	}
+	durations, counts := map[string]int64{}, map[string]int{}
+	for section, albums := range bySection {
+		tracks, err := s.plex.AlbumTracks(strconv.Itoa(section), albums)
+		if err != nil {
+			log.Printf("album totals: %v", err)
+			return found
+		}
+		for _, t := range tracks {
+			durations[t.ParentRatingKey] += t.Duration
+			counts[t.ParentRatingKey]++
+		}
+	}
+	for i, m := range found {
+		if m.Type == "album" {
+			found[i].Duration, found[i].LeafCount = durations[m.RatingKey], counts[m.RatingKey]
+		}
+	}
+	return found
+}
 
 func (s *Server) artists(w http.ResponseWriter, r *http.Request) {
 	q := query(r)
