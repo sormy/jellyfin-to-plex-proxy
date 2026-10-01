@@ -103,6 +103,8 @@ func (p *fakePlex) seed() {
 	p.add(PlexMetadata{RatingKey: fakePlaylistKey, Type: "playlist", Title: "Fake Mix", PlaylistType: "audio", LeafCount: 2,
 		Duration: 2 * fakeTrackMs, Composite: "/playlists/" + fakePlaylistKey + "/composite/1"})
 	p.members[fakePlaylistKey] = []string{"403", "402"}
+	// Plexamp keeps smart playlists that stay empty until something is loved.
+	p.add(PlexMetadata{RatingKey: "501", Type: "playlist", Title: "Loved", PlaylistType: "audio"})
 	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
 	p.addShow("300", "The Other Show", 1, 1)
 }

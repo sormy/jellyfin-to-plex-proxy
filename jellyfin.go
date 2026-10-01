@@ -146,7 +146,7 @@ type Item struct {
 	DateCreated              string            `json:"DateCreated,omitempty"`
 	RunTimeTicks             int64             `json:"RunTimeTicks,omitempty"`
 	Genres                   []string          `json:"Genres,omitempty"`
-	ChildCount               int               `json:"ChildCount,omitempty"`
+	ChildCount               int               `json:"ChildCount"`
 	RecursiveItemCount       int               `json:"RecursiveItemCount,omitempty"`
 	IndexNumber              *int              `json:"IndexNumber,omitempty"`
 	ParentIndexNumber        *int              `json:"ParentIndexNumber,omitempty"`

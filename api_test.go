@@ -956,6 +956,14 @@ func TestFinampRequiredFields(t *testing.T) {
 func TestPlaylists(t *testing.T) {
 	c := newClient(t)
 	playlists := c.items("/Items", url.Values{"IncludeItemTypes": {"Playlist"}, "Recursive": {"true"}, "SortBy": {"SortName"}}).Items
+	// Finamp requires every playlist's count, an empty one's included.
+	var raw struct{ Items []map[string]json.RawMessage }
+	c.expect(http.MethodGet, "/Items", url.Values{"IncludeItemTypes": {"Playlist"}, "Recursive": {"true"}}, nil, http.StatusOK, &raw)
+	for _, p := range raw.Items {
+		if count, ok := p["ChildCount"]; !ok || string(count) == "null" {
+			t.Errorf("playlist %s has no ChildCount", p["Name"])
+		}
+	}
 	i := slices.IndexFunc(playlists, func(p Item) bool { return p.ChildCount > 0 && p.ChildCount <= 50 })
 	switch {
 	case i < 0 && c.live:
