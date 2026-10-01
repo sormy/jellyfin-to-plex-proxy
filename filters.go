@@ -18,12 +18,23 @@ type QueryFiltersLegacy struct {
 }
 
 type QueryFilters struct {
-	Genres []NameID `json:"Genres"`
-	Tags   []string `json:"Tags"`
+	Genres            []NameID    `json:"Genres"`
+	Tags              []string    `json:"Tags"`
+	AudioLanguages    []NameValue `json:"AudioLanguages"`
+	SubtitleLanguages []NameValue `json:"SubtitleLanguages"`
 }
 
-// filterValues gathers a field's values across the libraries a query names.
-func (s *Server) filterValues(q url.Values, field string) ([]PlexDirectory, error) {
+type NameValue struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// videoKinds are the sections whose items carry audio and subtitle languages.
+var videoKinds = []string{"movie", "show"}
+
+// filterValues gathers a field's values across the libraries a query names,
+// of the given kinds of section, every kind when none is given.
+func (s *Server) filterValues(q url.Values, field string, kinds ...string) ([]PlexDirectory, error) {
 	sections, err := s.plex.Sections()
 	if err != nil {
 		return nil, err
@@ -35,7 +46,7 @@ func (s *Server) filterValues(q url.Values, field string) ([]PlexDirectory, erro
 	var values []PlexDirectory
 	for _, section := range sections {
 		plexType, ok := genreTypes[section.Type]
-		if !ok {
+		if !ok || len(kinds) > 0 && !slices.Contains(kinds, section.Type) {
 			continue
 		}
 		if held := slices.DeleteFunc(slices.Clone(types), func(t string) bool { return !slices.Contains(sectionHolds[section.Type], t) }); len(held) > 0 {
@@ -89,16 +100,49 @@ func (s *Server) filtersLegacy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) filters(w http.ResponseWriter, r *http.Request) {
-	genres, err := s.filterValues(query(r), "genre")
+	q := query(r)
+	genres, err := s.filterValues(q, "genre")
 	if err != nil {
 		fail(w, err)
 		return
 	}
-	result := QueryFilters{Genres: []NameID{}, Tags: []string{}}
+	audio, err := s.filterValues(q, "audioLanguage", videoKinds...)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	subtitles, err := s.filterValues(q, "subtitleLanguage", videoKinds...)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	result := QueryFilters{Genres: []NameID{}, Tags: []string{}, AudioLanguages: languages(audio), SubtitleLanguages: languages(subtitles)}
 	for _, g := range genres {
 		result.Genres = append(result.Genres, NameID{Name: g.Title, Id: EncodeID(KindGenre, g.Key)})
 	}
 	writeJSON(w, result)
+}
+
+// languages pairs each language's name with Plex's code, which a client
+// sends back to filter by and the proxy hands straight to Plex.
+func languages(values []PlexDirectory) []NameValue {
+	pairs := []NameValue{}
+	for _, v := range values {
+		pairs = append(pairs, NameValue{Name: v.Title, Value: v.Key})
+	}
+	return pairs
+}
+
+// firstCharacter is Plex's bucket for a letter filter: a letter, or "#" for
+// titles that start with anything else, which clients ask as "before A".
+func firstCharacter(q url.Values) string {
+	if letter := q.Get("namestartswith"); letter != "" {
+		return strings.ToUpper(letter[:1])
+	}
+	if strings.EqualFold(q.Get("namelessthan"), "A") {
+		return "#"
+	}
+	return ""
 }
 
 // valuesOf reads a list parameter, whose values Jellyfin may join with "|".

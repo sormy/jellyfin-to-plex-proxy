@@ -169,6 +169,12 @@ func plexQuery(q url.Values, plexType string) url.Values {
 	if ratings := valuesOf(q, "officialratings"); len(ratings) > 0 {
 		v.Set("contentRating", strings.Join(ratings, ","))
 	}
+	if audio := valuesOf(q, "audiolanguages"); len(audio) > 0 {
+		v.Set("audioLanguage", strings.Join(audio, ","))
+	}
+	if subtitles := valuesOf(q, "subtitlelanguages"); len(subtitles) > 0 {
+		v.Set("subtitleLanguage", strings.Join(subtitles, ","))
+	}
 	switch q.Get("isplayed") {
 	case "true":
 		v.Set("unwatched", "0")
@@ -263,7 +269,7 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		} else if len(valuesOf(q, "genres")) > 0 {
 			return empty, nil
 		}
-		c, err := s.plex.SectionItems(key, plexFilter, page)
+		c, err := s.plex.SectionItems(key, firstCharacter(q), plexFilter, page)
 		return ItemsResult{Items: ToItems(s.serverID, s.withAlbumTotals(c.Metadata)), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
 	case ok && kind == KindPlaylist:
 		found, err := s.plex.PlaylistItems(key)
@@ -435,7 +441,7 @@ func (s *Server) collections(sections []PlexDirectory) ([]PlexMetadata, error) {
 
 // count asks Plex for a total alone: a page of no items still carries it.
 func (s *Server) count(section, plexType string) (int, error) {
-	c, err := s.plex.SectionItems(section, url.Values{"type": {plexTypeNumbers[plexType]}}, Page{})
+	c, err := s.plex.SectionItems(section, "", url.Values{"type": {plexTypeNumbers[plexType]}}, Page{})
 	return c.TotalSize, err
 }
 
@@ -525,7 +531,7 @@ func (s *Server) latestItems(q url.Values) ([]Item, error) {
 	if limit <= 0 {
 		limit = defaultLatestLimit
 	}
-	c, err := s.plex.SectionItems(key, plexLatest[section.Type], Page{Size: limit})
+	c, err := s.plex.SectionItems(key, "", plexLatest[section.Type], Page{Size: limit})
 	return ToItems(s.serverID, s.withAlbumTotals(c.Metadata)), err
 }
 

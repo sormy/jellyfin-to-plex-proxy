@@ -95,6 +95,12 @@ func (p *fakePlex) seed() {
 	}
 	p.items["102"].Genre = []PlexTag{{ID: fakeDramaGenre, Tag: "Fake Drama"}}
 	p.items["102"].ContentRating, p.items["103"].ContentRating = "PG-13", "R"
+	// One movie only in Japanese, so a language filter has something to narrow.
+	for i, s := range p.items["103"].Media[0].Part[0].Stream {
+		if s.StreamType == plexAudio {
+			p.items["103"].Media[0].Part[0].Stream[i].LanguageCode = "jpn"
+		}
+	}
 	// Plex merges versions of one title, as a trailer filed beside the movie.
 	first := p.items["101"]
 	first.Media = append(fakeMedia(1001, fakeTrailerMs, fakeBitrate/2), first.Media...)
@@ -175,6 +181,10 @@ func (p *fakePlex) routes() {
 		p.list(w, r, kind, sectionHolds[kind])
 	})
 	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "", nil) })
+	p.mux.HandleFunc("GET /library/sections/{section}/firstCharacter/{character}", func(w http.ResponseWriter, r *http.Request) {
+		kind := map[string]string{fakeMovieSection: "movie", fakeShowSection: "show", fakeMusicSection: "artist"}[r.PathValue("section")]
+		p.listStarting(w, r, kind, sectionHolds[kind], r.PathValue("character"))
+	})
 	p.mux.HandleFunc("GET /playlists", func(w http.ResponseWriter, r *http.Request) {
 		listed := p.matching(func(m *PlexMetadata) bool { return m.Type == "playlist" })
 		for i := range listed {
@@ -213,6 +223,13 @@ func (p *fakePlex) routes() {
 				add(strconv.Itoa(m.Year), strconv.Itoa(m.Year))
 			case "contentRating":
 				add(m.ContentRating, m.ContentRating)
+			case "audioLanguage", "subtitleLanguage":
+				kind := map[string]int{"audioLanguage": plexAudio, "subtitleLanguage": plexSubtitle}[r.PathValue("field")]
+				for _, s := range p.streamsOf(&m) {
+					if s.StreamType == kind {
+						add(s.LanguageCode, s.LanguageCode)
+					}
+				}
 			}
 		}
 		p.write(w, PlexContainer{Directory: values})
@@ -455,6 +472,12 @@ var fakeTypeNames = map[string]string{
 
 // list answers a listing; a section holds only its own kinds of item.
 func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string, holds []string) {
+	p.listStarting(w, r, plexType, holds, "")
+}
+
+// listStarting lists as list does, only titles starting with character when
+// one is given; "#" stands for anything but a letter.
+func (p *fakePlex) listStarting(w http.ResponseWriter, r *http.Request, plexType string, holds []string, character string) {
 	q := r.URL.Query()
 	plexType = cmp.Or(fakeTypeNames[q.Get("type")], plexType)
 	unwatched := q.Get("unwatched")
@@ -469,7 +492,11 @@ func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string,
 		inGenre := !q.Has("genre") || slices.ContainsFunc(p.genresOf(m), func(g PlexTag) bool { return slices.Contains(genres, strconv.Itoa(g.ID)) })
 		inYear := !q.Has("year") || slices.Contains(strings.Split(q.Get("year"), ","), strconv.Itoa(m.Year))
 		inRating := !q.Has("contentRating") || slices.Contains(strings.Split(q.Get("contentRating"), ","), m.ContentRating)
-		return m.Type == plexType && inSection && ratingMatches && inAlbum && inGenre && inYear && inRating && (unwatched == "" || (unwatched == "1") != played)
+		initial := strings.ToUpper(m.Title[:1])
+		startsRight := character == "" || initial == character || character == "#" && (initial < "A" || initial > "Z")
+		inAudio := !q.Has("audioLanguage") || p.hasLanguage(m, plexAudio, q.Get("audioLanguage"))
+		inSubtitles := !q.Has("subtitleLanguage") || p.hasLanguage(m, plexSubtitle, q.Get("subtitleLanguage"))
+		return m.Type == plexType && inSection && ratingMatches && inAlbum && inGenre && inYear && inRating && startsRight && inAudio && inSubtitles && (unwatched == "" || (unwatched == "1") != played)
 	})
 	field, order, _ := strings.Cut(q.Get("sort"), ":")
 	key := map[string]func(PlexMetadata) string{
@@ -523,4 +550,22 @@ func (p *fakePlex) genresOf(m *PlexMetadata) []PlexTag {
 		}
 	}
 	return m.Genre
+}
+
+func (p *fakePlex) streamsOf(m *PlexMetadata) []PlexStream {
+	var streams []PlexStream
+	for _, media := range p.items[m.RatingKey].Media {
+		for _, part := range media.Part {
+			streams = append(streams, part.Stream...)
+		}
+	}
+	return streams
+}
+
+// hasLanguage tells whether an item holds a stream of a kind in one of the
+// comma-joined languages.
+func (p *fakePlex) hasLanguage(m *PlexMetadata, kind int, languages string) bool {
+	return slices.ContainsFunc(p.streamsOf(m), func(s PlexStream) bool {
+		return s.StreamType == kind && slices.Contains(strings.Split(languages, ","), s.LanguageCode)
+	})
 }

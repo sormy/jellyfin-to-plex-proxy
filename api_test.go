@@ -1077,7 +1077,35 @@ func TestFilters(t *testing.T) {
 	if len(legacy.Genres) == 0 || len(legacy.Years) == 0 || len(legacy.OfficialRatings) == 0 || len(current.Genres) == 0 {
 		t.Fatalf("filters: %+v, %+v", legacy, current)
 	}
+	if len(current.AudioLanguages) < 2 || len(current.SubtitleLanguages) == 0 {
+		t.Fatalf("languages: %+v, %+v", current.AudioLanguages, current.SubtitleLanguages)
+	}
 	all := c.items("/Items", url.Values{"parentId": {movies.Id}, "includeItemTypes": {"Movie"}}).Items
+	inLetter := func(key, value string) []Item {
+		return c.items("/Items", url.Values{"parentId": {movies.Id}, "includeItemTypes": {"Movie"}, key: {value}}).Items
+	}
+	letter := strings.ToUpper(all[0].Name[:1])
+	for _, it := range inLetter("nameStartsWith", letter) {
+		if strings.ToUpper(it.Name[:1]) != letter {
+			t.Errorf("nameStartsWith=%s returned %q", letter, it.Name)
+		}
+	}
+	for _, it := range inLetter("nameLessThan", "A") {
+		if initial := strings.ToUpper(it.Name[:1]); initial >= "A" && initial <= "Z" {
+			t.Errorf("titles before A returned %q", it.Name)
+		}
+	}
+	// Movies hold several audio languages; one of them must leave some out.
+	narrowsByLanguage := slices.ContainsFunc(current.AudioLanguages, func(l NameValue) bool {
+		n := len(inLetter("audioLanguages", l.Value))
+		return n > 0 && n < len(all)
+	})
+	if !narrowsByLanguage {
+		t.Error("no audio language narrows the movies")
+	}
+	if len(inLetter("subtitleLanguages", current.SubtitleLanguages[0].Value)) == 0 {
+		t.Errorf("no movie with %s subtitles", current.SubtitleLanguages[0].Name)
+	}
 	for _, tc := range []struct{ key, value string }{
 		{"genres", current.Genres[0].Name},
 		{"years", strconv.Itoa(legacy.Years[0])},

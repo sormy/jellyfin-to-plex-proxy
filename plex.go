@@ -245,9 +245,14 @@ func (p *Plex) AllLeaves(ratingKey string) ([]PlexMetadata, error) {
 	return c.Metadata, err
 }
 
-// SectionItems lists one Plex type (1 movie, 2 show, 4 episode) of a section.
-func (p *Plex) SectionItems(section string, query url.Values, page Page) (PlexContainer, error) {
-	return p.get("/library/sections/"+section+"/all", query, page.header())
+// SectionItems lists one Plex type (1 movie, 2 show, 4 episode) of a
+// section; given a first character, only the items whose title starts with it.
+func (p *Plex) SectionItems(section, firstCharacter string, query url.Values, page Page) (PlexContainer, error) {
+	path := "/library/sections/" + section + "/all"
+	if firstCharacter != "" {
+		path = "/library/sections/" + section + "/firstCharacter/" + firstCharacter
+	}
+	return p.get(path, query, page.header())
 }
 
 func (p *Plex) OnDeck() ([]PlexMetadata, error) {
