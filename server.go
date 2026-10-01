@@ -21,7 +21,7 @@ const (
 
 const idLength = 32
 
-var collectionTypes = map[string]string{"movie": "movies", "show": "tvshows"}
+var collectionTypes = map[string]string{"movie": "movies", "show": "tvshows", "artist": "music"}
 
 type Config struct {
 	UserName string
@@ -64,19 +64,33 @@ func (s *Server) playSession(id string) string { return s.secret("play", id) }
 
 func (s *Server) user() User {
 	return User{
-		Id:          s.userID(),
-		Name:        s.config.UserName,
-		ServerId:    s.serverID,
-		HasPassword: true,
+		Id:                    s.userID(),
+		Name:                  s.config.UserName,
+		ServerId:              s.serverID,
+		HasPassword:           true,
+		HasConfiguredPassword: true,
 		Configuration: UserConfiguration{
-			MyMediaExcludes: []string{}, LatestItemsExcludes: []string{}, OrderedViews: []string{},
+			MyMediaExcludes:            []string{},
+			LatestItemsExcludes:        []string{},
+			OrderedViews:               []string{},
+			PlayDefaultAudioTrack:      true,
+			SubtitleMode:               "Default",
+			HidePlayedInLatest:         true,
+			RememberAudioSelections:    true,
+			RememberSubtitleSelections: true,
+			EnableNextEpisodeAutoPlay:  true,
 		},
 		Policy: UserPolicy{
-			EnableMediaPlayback:      true,
-			EnableAllFolders:         true,
-			EnableRemoteAccess:       true,
-			AuthenticationProviderId: authenticationProvider,
-			PasswordResetProviderId:  passwordResetProvider,
+			EnableUserPreferenceAccess:     true,
+			EnableRemoteAccess:             true,
+			EnableMediaPlayback:            true,
+			EnableAudioPlaybackTranscoding: true,
+			EnableContentDownloading:       true,
+			EnableAllDevices:               true,
+			EnableAllFolders:               true,
+			SyncPlayAccess:                 "None",
+			AuthenticationProviderId:       authenticationProvider,
+			PasswordResetProviderId:        passwordResetProvider,
 		},
 	}
 }
@@ -187,6 +201,14 @@ func (s *Server) routes() {
 	s.private("GET /Shows/{id}/Episodes", s.episodes)
 	s.private("POST /Items/{id}/PlaybackInfo", s.playbackInfo)
 	s.private("GET /Playback/BitrateTest", s.bitrateTest)
+	s.private("GET /Items/{id}/PlaybackInfo", s.playbackInfo)
+	s.private("GET /System/Endpoint", emptyObject)
+	s.private("POST /Sessions/Logout", noContent)
+	s.private("GET /Artists", s.artists)
+	s.private("GET /Artists/AlbumArtists", s.artists)
+	s.private("GET /Items/{id}/File", s.audioFile)
+	s.private("GET /Audio/{id}/main.m3u8", s.audioPlaylist)
+	s.public("GET /Audio/{id}/session/{rest...}", s.audioSession)
 	s.private("POST /Sessions/Playing", s.reportPlayback(false))
 	s.private("POST /Sessions/Playing/Progress", s.reportPlayback(false))
 	s.private("POST /Sessions/Playing/Stopped", s.reportPlayback(true))
@@ -204,7 +226,7 @@ func (s *Server) routes() {
 	s.private("GET /Localization/Cultures", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, cultures) })
 	for _, pattern := range []string{
 		"GET /Items/{id}/Similar", "GET /Videos/{id}/AdditionalParts", "GET /Persons", "GET /LiveTv/Programs/Recommended",
-		"GET /MediaSegments/{id}",
+		"GET /MediaSegments/{id}", "GET /Genres", "GET /Albums/{id}/Similar", "GET /Items/{id}/InstantMix",
 	} {
 		s.private(pattern, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, ItemsResult{Items: []Item{}}) })
 	}

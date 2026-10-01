@@ -26,6 +26,8 @@ const (
 	resumePositionMs  = 120_000
 	watchedFraction   = 0.95
 	streamProbeLength = 1024
+	// Plex's transcoder takes a few seconds to cut its first segment.
+	transcoderAttempts = 15
 )
 
 type client struct {
@@ -256,7 +258,7 @@ func TestLibraries(t *testing.T) {
 			if view.ChildCount == 0 || view.RecursiveItemCount < view.ChildCount {
 				t.Errorf("counts: %d children, %d recursive", view.ChildCount, view.RecursiveItemCount)
 			}
-			itemType := map[string]string{"movies": "Movie", "tvshows": "Series"}[view.CollectionType]
+			itemType := map[string]string{"movies": "Movie", "tvshows": "Series", "music": "MusicArtist"}[view.CollectionType]
 			q := url.Values{"parentId": {view.Id}, "includeItemTypes": {itemType}, "sortBy": {"SortName"}, "limit": {"5"}}
 			first := c.items("/Items", q)
 			q.Set("startIndex", "5")
@@ -307,6 +309,9 @@ func TestCollections(t *testing.T) {
 func TestLibraryTiles(t *testing.T) {
 	c := newClient(t)
 	for _, view := range c.items("/UserViews", nil).Items {
+		if view.CollectionType == "music" {
+			continue // Swiftfin asks no tile of a music library.
+		}
 		tile := c.items("/Items", url.Values{
 			"parentId": {view.Id}, "recursive": {"true"}, "sortBy": {"Random"}, "limit": {"3"},
 			"includeItemTypes": {"BoxSet", "Movie", "MusicVideo", "Series", "Video"},
@@ -774,6 +779,152 @@ func trackOtherThan(source MediaSource, kind string, index int) int {
 		}
 	}
 	return index
+}
+
+// TestMusic follows Finamp: artists, their albums, an album's tracks, then
+// the file as stored and the same track converted to AAC over HLS.
+func TestMusic(t *testing.T) {
+	c := newClient(t)
+	views := c.items("/UserViews", nil).Items
+	i := slices.IndexFunc(views, func(v Item) bool { return v.CollectionType == "music" })
+	if i < 0 {
+		t.Skip("no music library")
+	}
+	library := views[i]
+	artists := c.items("/Artists/AlbumArtists", url.Values{"ParentId": {library.Id}, "Recursive": {"true"}, "SortBy": {"SortName"}})
+	if len(artists.Items) == 0 || artists.Items[0].Type != "MusicArtist" {
+		t.Fatalf("artists %+v", artists.Items)
+	}
+	var album Item
+	for _, artist := range artists.Items {
+		albums := c.items("/Items", url.Values{"AlbumArtistIds": {artist.Id}, "IncludeItemTypes": {"MusicAlbum"}, "Recursive": {"true"}})
+		if len(albums.Items) > 0 {
+			album = albums.Items[0]
+			if album.Type != "MusicAlbum" || len(album.AlbumArtists) == 0 || album.AlbumArtists[0].Id != artist.Id {
+				t.Errorf("album %+v of %s", album, artist.Name)
+			}
+			break
+		}
+	}
+	tracks := c.items("/Items", url.Values{
+		"ParentId": {album.Id}, "IncludeItemTypes": {"Audio"}, "Recursive": {"true"},
+		"SortBy": {"ParentIndexNumber,IndexNumber,SortName"},
+	}).Items
+	if len(tracks) == 0 {
+		t.Fatalf("no tracks in %s", album.Name)
+	}
+	for n, track := range tracks {
+		if track.Type != "Audio" || track.MediaType != "Audio" || track.AlbumId != album.Id ||
+			len(track.ArtistItems) == 0 || track.ArtistItems[0].Id == "" || track.IndexNumber == nil ||
+			(n > 0 && *tracks[n-1].IndexNumber > *track.IndexNumber && *tracks[n-1].ParentIndexNumber == *track.ParentIndexNumber) {
+			t.Errorf("track %d: %+v", n, track)
+		}
+	}
+	track := tracks[0]
+	var info PlaybackInfo
+	c.expect(http.MethodGet, "/Items/"+track.Id+"/PlaybackInfo", nil, nil, http.StatusOK, &info)
+	if len(info.MediaSources) == 0 {
+		t.Errorf("playback info %+v", info)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, c.base+"/Items/"+track.Id+"/File?ApiKey="+c.token, nil)
+	req.Header.Set("Range", "bytes=0-15")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPartialContent || !strings.HasPrefix(resp.Header.Get("Content-Type"), "audio/") {
+		t.Errorf("file: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+
+	session := fmt.Sprintf("test%d", time.Now().UnixNano())
+	master := c.base + "/Audio/" + track.Id + "/main.m3u8?" + url.Values{
+		"ApiKey": {c.token}, "playSessionId": {session}, "audioCodec": {"aac"}, "audioBitRate": {"256000"},
+	}.Encode()
+	variant := firstEntry(t, master)
+	segment := firstEntry(t, variant)
+	if body := fetchWhenReady(t, segment); len(body) == 0 {
+		t.Error("empty first segment")
+	}
+}
+
+// firstEntry fetches a playlist and resolves its first entry against it, as players do.
+func firstEntry(t *testing.T, playlist string) string {
+	t.Helper()
+	body := string(fetchWhenReady(t, playlist))
+	for _, line := range strings.Split(body, "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			base, _ := url.Parse(playlist)
+			ref, _ := url.Parse(strings.TrimSpace(line))
+			return base.ResolveReference(ref).String()
+		}
+	}
+	t.Fatalf("%s has no entry: %q", playlist, body)
+	return ""
+}
+
+// fetchWhenReady retries while Plex's transcoder catches up.
+func fetchWhenReady(t *testing.T, target string) []byte {
+	t.Helper()
+	for attempt := 0; ; attempt++ {
+		resp, err := http.Get(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return body
+		}
+		if attempt == transcoderAttempts {
+			t.Fatalf("%s: status %d", target, resp.StatusCode)
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// TestFinampRequiredFields checks the fields Finamp's models require: one
+// missing field fails its whole response.
+func TestFinampRequiredFields(t *testing.T) {
+	c := newClient(t)
+	required := map[string][]string{
+		"User": {"Id", "HasPassword", "HasConfiguredPassword", "HasConfiguredEasyPassword"},
+		"Configuration": {"PlayDefaultAudioTrack", "DisplayMissingEpisodes", "SubtitleMode", "DisplayCollectionsView",
+			"EnableLocalPassword", "HidePlayedInLatest", "RememberAudioSelections", "RememberSubtitleSelections",
+			"EnableNextEpisodeAutoPlay"},
+		"Policy": {"IsAdministrator", "IsHidden", "IsDisabled", "EnableUserPreferenceAccess", "EnableRemoteControlOfOtherUsers",
+			"EnableSharedDeviceControl", "EnableRemoteAccess", "EnableLiveTvManagement", "EnableLiveTvAccess",
+			"EnableMediaPlayback", "EnableAudioPlaybackTranscoding", "EnableVideoPlaybackTranscoding", "EnablePlaybackRemuxing",
+			"EnableContentDeletion", "EnableContentDownloading", "EnableSyncTranscoding", "EnableMediaConversion",
+			"EnableAllDevices", "EnableAllChannels", "EnableAllFolders", "InvalidLoginAttemptCount", "EnablePublicSharing",
+			"RemoteClientBitrateLimit", "SyncPlayAccess"},
+		"MediaSource": {"Protocol", "Type", "IsRemote", "SupportsTranscoding", "SupportsDirectStream", "SupportsDirectPlay",
+			"IsInfiniteStream", "RequiresOpening", "RequiresClosing", "RequiresLooping", "SupportsProbing", "MediaStreams",
+			"ReadAtNativeFramerate", "IgnoreDts", "IgnoreIndex", "GenPtsInput", "Id"},
+		"MediaStream": {"IsInterlaced", "IsDefault", "IsForced", "Type", "Index", "IsExternal", "IsTextSubtitleStream",
+			"SupportsExternalStream"},
+	}
+	var me map[string]json.RawMessage
+	c.expect(http.MethodGet, "/Users/Me", nil, nil, http.StatusOK, &me)
+	objects := map[string]map[string]json.RawMessage{"User": me}
+	for _, name := range []string{"Configuration", "Policy"} {
+		var nested map[string]json.RawMessage
+		json.Unmarshal(me[name], &nested)
+		objects[name] = nested
+	}
+	var item struct{ MediaSources []map[string]json.RawMessage }
+	c.expect(http.MethodGet, "/Items/"+c.episodes(c.series())[0].Id, nil, nil, http.StatusOK, &item)
+	var streams []map[string]json.RawMessage
+	json.Unmarshal(item.MediaSources[0]["MediaStreams"], &streams)
+	objects["MediaSource"], objects["MediaStream"] = item.MediaSources[0], streams[0]
+	for name, fields := range required {
+		for _, field := range fields {
+			if _, ok := objects[name][field]; !ok {
+				t.Errorf("%s lacks %s", name, field)
+			}
+		}
+	}
 }
 
 func TestMediaVersions(t *testing.T) {

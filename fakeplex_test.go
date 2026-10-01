@@ -31,6 +31,7 @@ const (
 	fakeMaxImageSide    = 16384
 	fakeTrailerMs       = 106_000
 	fakeBitrate         = 4000
+	fakeTrackMs         = 200_000
 )
 
 // fakePlex is an in-memory Plex Media Server: the subset of its API the
@@ -56,7 +57,10 @@ func newFakePlex(t *testing.T) *httptest.Server {
 func (p *fakePlex) add(m PlexMetadata) {
 	p.clock += 100
 	m.AddedAt = p.clock
-	m.LibrarySectionID = map[bool]int{true: 1, false: 2}[m.Type == "movie" || m.Type == "collection"]
+	m.LibrarySectionID = map[string]int{"movie": 1, "collection": 1, "artist": 3, "album": 3, "track": 3}[m.Type]
+	if m.LibrarySectionID == 0 {
+		m.LibrarySectionID = 2
+	}
 	m.Thumb = fmt.Sprintf("/library/metadata/%s/thumb/%d", m.RatingKey, p.clock)
 	if m.Type != "episode" {
 		m.Art = fmt.Sprintf("/library/metadata/%s/art/%d", m.RatingKey, p.clock)
@@ -90,8 +94,29 @@ func (p *fakePlex) seed() {
 	first.Media = append(fakeMedia(1001, fakeTrailerMs, fakeBitrate/2), first.Media...)
 	p.add(PlexMetadata{RatingKey: fakeCollectionKey, Type: "collection", Title: "Fake Saga", ChildCount: 2})
 	p.members[fakeCollectionKey] = []string{"101", "102"}
+	p.addMusic()
 	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
 	p.addShow("300", "The Other Show", 1, 1)
+}
+
+// addMusic files one band, one album and its tracks, as Plex's artist,
+// album and track; the tracks are Ogg, as Plex keeps them.
+func (p *fakePlex) addMusic() {
+	p.add(PlexMetadata{RatingKey: "400", Type: "artist", Title: "Fake Band"})
+	p.add(PlexMetadata{RatingKey: "401", Type: "album", Title: "Fake Album", Year: 2020, Index: 1,
+		ParentRatingKey: "400", ParentTitle: "Fake Band"})
+	album := p.items["401"]
+	for i, title := range []string{"Opening", "Closing"} {
+		key := 402 + i
+		p.add(PlexMetadata{RatingKey: strconv.Itoa(key), Type: "track", Title: title, Index: i + 1, ParentIndex: 1,
+			ParentRatingKey: "401", ParentTitle: "Fake Album", ParentThumb: album.Thumb, ParentYear: 2020,
+			GrandparentRatingKey: "400", GrandparentTitle: "Fake Band", Duration: fakeTrackMs,
+			Media: []PlexMedia{{Duration: fakeTrackMs, Bitrate: 320, Container: "ogg", Part: []PlexPart{{
+				ID: key, Key: fmt.Sprintf("/library/parts/%d/1/file.ogg", key), File: fmt.Sprintf("/media/%d.ogg", key),
+				Container: "ogg", Size: fakePartFileSize, Duration: fakeTrackMs,
+				Stream: []PlexStream{{ID: key * 10, StreamType: 2, Index: 0, Codec: "vorbis", Channels: 2, SamplingRate: 44100, Selected: true}},
+			}}}}})
+	}
 }
 
 func (p *fakePlex) addShow(key, title string, seasons, episodes int) {
@@ -159,8 +184,8 @@ func (p *fakePlex) routes() {
 		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.Type == "collection" })})
 	})
 	p.mux.HandleFunc("GET /library/metadata/{key}/allLeaves", func(w http.ResponseWriter, r *http.Request) {
-		// Plex answers allLeaves only for shows; a season gets an empty list.
-		if m := p.items[r.PathValue("key")]; m == nil || m.Type != "show" {
+		// Plex answers allLeaves only above the folders; a season gets an empty list.
+		if m := p.items[r.PathValue("key")]; m == nil || (m.Type != "show" && m.Type != "artist") {
 			p.write(w, PlexContainer{})
 			return
 		}
@@ -214,7 +239,26 @@ func (p *fakePlex) routes() {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Write([]byte{0xff, 0xd8, 0xff})
 	})
+	p.mux.HandleFunc("GET /music/:/transcode/universal/start.m3u8", func(w http.ResponseWriter, r *http.Request) {
+		// Plex converts only to a target the client declares.
+		if !strings.Contains(r.Header.Get("X-Plex-Client-Profile-Extra"), "protocol=hls") || p.items[strings.TrimPrefix(r.URL.Query().Get("path"), "/library/metadata/")] == nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+		fmt.Fprintf(w, "#EXTM3U\n#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=256000\nsession/%s/base/index.m3u8\n", r.URL.Query().Get("session"))
+	})
+	p.mux.HandleFunc("GET /music/:/transcode/universal/session/{session}/base/{file}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("file") == "index.m3u8" {
+			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			w.Write([]byte("#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\n00000.ts\n#EXT-X-ENDLIST\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "video/mp2t")
+		w.Write(make([]byte, 188))
+	})
 	p.mux.HandleFunc("GET /library/parts/{id}/{stamp}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
 		http.ServeContent(w, r, r.PathValue("file"), time.Unix(p.clock, 0), bytes.NewReader(make([]byte, fakePartFileSize)))
 	})
 	p.mux.HandleFunc("PUT /library/parts/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -265,7 +309,7 @@ func (p *fakePlex) subtree(key string) []*PlexMetadata {
 // view fills in the counts Plex derives for shows and seasons.
 func (p *fakePlex) view(m *PlexMetadata) PlexMetadata {
 	v := *m
-	if m.Type == "show" || m.Type == "season" {
+	if slices.Contains([]string{"show", "season", "artist", "album"}, m.Type) {
 		v.LeafCount, v.ViewedLeafCount = 0, 0
 		for _, leaf := range p.subtree(m.RatingKey) {
 			v.LeafCount++

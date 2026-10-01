@@ -35,6 +35,8 @@ type PlexStream struct {
 	Height               int     `json:"height"`
 	Bitrate              int     `json:"bitrate"`
 	FrameRate            float64 `json:"frameRate"`
+	SamplingRate         int     `json:"samplingRate"`
+	BitDepth             int     `json:"bitDepth"`
 }
 
 type PlexPart struct {
@@ -52,6 +54,7 @@ type PlexMedia struct {
 	Bitrate         int        `json:"bitrate"`
 	Height          int        `json:"height"`
 	VideoCodec      string     `json:"videoCodec"`
+	Container       string     `json:"container"`
 	VideoResolution string     `json:"videoResolution"`
 	Part            []PlexPart `json:"Part"`
 }
@@ -85,6 +88,9 @@ type PlexMetadata struct {
 	Thumb                 string      `json:"thumb"`
 	Art                   string      `json:"art"`
 	GrandparentThumb      string      `json:"grandparentThumb"`
+	ParentThumb           string      `json:"parentThumb"`
+	ParentYear            int         `json:"parentYear"`
+	OriginalTitle         string      `json:"originalTitle"`
 	GrandparentArt        string      `json:"grandparentArt"`
 	Genre                 []PlexTag   `json:"Genre"`
 	Media                 []PlexMedia `json:"Media"`

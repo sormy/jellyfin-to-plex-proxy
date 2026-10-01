@@ -47,8 +47,8 @@ func TestDates(t *testing.T) {
 }
 
 func TestToItemSkipsUnknownTypes(t *testing.T) {
-	if _, ok := ToItem("s", PlexMetadata{RatingKey: "1", Type: "artist"}); ok {
-		t.Error("artist converted")
+	if _, ok := ToItem("s", PlexMetadata{RatingKey: "1", Type: "photo"}); ok {
+		t.Error("photo converted")
 	}
 }
 

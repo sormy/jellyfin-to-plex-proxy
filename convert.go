@@ -11,6 +11,7 @@ import (
 
 const (
 	posterAspectRatio    = 2.0 / 3.0
+	squareAspectRatio    = 1.0
 	landscapeAspectRatio = 16.0 / 9.0
 	bitsPerKilobit       = 1000
 )
@@ -21,6 +22,9 @@ var itemTypes = map[string]string{
 	"season":     "Season",
 	"episode":    "Episode",
 	"collection": "BoxSet",
+	"artist":     "MusicArtist",
+	"album":      "MusicAlbum",
+	"track":      "Audio",
 }
 
 var streamTypes = map[int]string{1: "Video", 2: "Audio", 3: "Subtitle"}
@@ -93,6 +97,37 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 	case "movie":
 		item.MediaType = "Video"
 		item.PrimaryImageAspectRatio = posterAspectRatio
+	case "artist":
+		item.IsFolder = true
+		item.PrimaryImageAspectRatio = squareAspectRatio
+	case "album":
+		artist := NameID{Name: m.ParentTitle, Id: EncodeID(KindItem, m.ParentRatingKey)}
+		item.IsFolder = true
+		item.ChildCount = m.LeafCount
+		item.ParentId = artist.Id
+		item.AlbumArtist = artist.Name
+		item.AlbumArtists = []NameID{artist}
+		item.ArtistItems = []NameID{artist}
+		item.Artists = []string{artist.Name}
+		item.PrimaryImageAspectRatio = squareAspectRatio
+	case "track":
+		// Plex holds a track's own performer apart from the album's artist.
+		artist := NameID{Name: m.GrandparentTitle, Id: EncodeID(KindItem, m.GrandparentRatingKey)}
+		performer := NameID{Name: cmp.Or(m.OriginalTitle, artist.Name), Id: artist.Id}
+		item.MediaType = "Audio"
+		item.IndexNumber = intPointer(m.Index)
+		item.ParentIndexNumber = intPointer(m.ParentIndex)
+		item.AlbumId = EncodeID(KindItem, m.ParentRatingKey)
+		item.ParentId = item.AlbumId
+		item.ParentPrimaryImageItemId = item.AlbumId
+		item.Album = m.ParentTitle
+		item.AlbumPrimaryImageTag = imageTag(m.ParentThumb)
+		item.AlbumArtist = artist.Name
+		item.AlbumArtists = []NameID{artist}
+		item.ArtistItems = []NameID{performer}
+		item.Artists = []string{performer.Name}
+		item.ProductionYear = cmp.Or(m.Year, m.ParentYear)
+		item.PrimaryImageAspectRatio = squareAspectRatio
 	case "collection":
 		item.IsFolder = true
 		item.ChildCount = m.ChildCount
@@ -162,7 +197,7 @@ func toUserData(m PlexMetadata) *UserData {
 	if m.ViewOffset > 0 && m.Duration > 0 {
 		data.PlayedPercentage = float64(m.ViewOffset) * 100 / float64(m.Duration)
 	}
-	if m.Type == "show" || m.Type == "season" {
+	if slices.Contains([]string{"show", "season", "artist", "album"}, m.Type) {
 		unplayed := m.LeafCount - m.ViewedLeafCount
 		data.UnplayedItemCount = &unplayed
 		data.Played = m.LeafCount > 0 && unplayed == 0
@@ -202,6 +237,7 @@ func toMediaSources(itemID string, m PlexMetadata) []MediaSource {
 			RunTimeTicks:               version.Duration * ticksPerMillisecond,
 			SupportsDirectPlay:         true,
 			SupportsDirectStream:       true,
+			SupportsProbing:            true,
 			MediaStreams:               streams,
 			DefaultAudioStreamIndex:    audio,
 			DefaultSubtitleStreamIndex: subtitle,
@@ -280,6 +316,8 @@ func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaS
 			Height:           s.Height,
 			BitRate:          s.Bitrate * bitsPerKilobit,
 			AverageFrameRate: s.FrameRate,
+			SampleRate:       s.SamplingRate,
+			BitDepth:         s.BitDepth,
 		}
 		if s.ExtendedDisplayTitle != "" {
 			stream.DisplayTitle = s.ExtendedDisplayTitle

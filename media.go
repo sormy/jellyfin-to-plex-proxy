@@ -23,16 +23,28 @@ const (
 var proxiedHeaders = []string{"Range", "If-Range", "If-Modified-Since", "If-None-Match"}
 
 func (s *Server) proxy(w http.ResponseWriter, r *http.Request, target *url.URL) {
+	s.proxyAs(w, r, target, http.Header{}, "")
+}
+
+// proxyAs relays a Plex response, sending Plex extra headers and, when Plex
+// cannot tell, the content type a player needs.
+func (s *Server) proxyAs(w http.ResponseWriter, r *http.Request, target *url.URL, header http.Header, contentType string) {
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.Out.URL = target
 			pr.Out.Host = target.Host
-			pr.Out.Header = http.Header{}
+			pr.Out.Header = header.Clone()
 			for _, name := range proxiedHeaders {
 				if value := pr.In.Header.Get(name); value != "" {
 					pr.Out.Header.Set(name, value)
 				}
 			}
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			if contentType != "" {
+				resp.Header.Set("Content-Type", contentType)
+			}
+			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if !errors.Is(err, context.Canceled) {

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -34,12 +35,22 @@ const (
 
 var jellyfinToPlexTypes = map[string]string{
 	"movie": "movie", "series": "show", "season": "season", "episode": "episode",
+	"musicartist": "artist", "musicalbum": "album", "audio": "track",
 }
 
-var plexTypeNumbers = map[string]string{"movie": "1", "show": "2", "season": "3", "episode": "4"}
+var plexTypeNumbers = map[string]string{
+	"movie": "1", "show": "2", "season": "3", "episode": "4", "artist": "8", "album": "9", "track": "10",
+}
 
 // sectionHolds lists the item types a Plex section of each kind contains.
-var sectionHolds = map[string][]string{"movie": {"movie"}, "show": {"show", "season", "episode"}}
+var sectionHolds = map[string][]string{
+	"movie":  {"movie"},
+	"show":   {"show", "season", "episode"},
+	"artist": {"artist", "album", "track"},
+}
+
+// folderTypes are the items whose children are folders themselves.
+var folderTypes = []string{"season", "album"}
 
 var plexSorts = map[string]string{
 	"sortname":             "titleSort",
@@ -56,6 +67,7 @@ var plexSorts = map[string]string{
 	"runtime":              "duration",
 	"studio":               "studio",
 	"videobitrate":         "mediaBitrate",
+	"albumartist":          "artist.titleSort",
 	"random":               "random",
 }
 
@@ -70,8 +82,9 @@ var plexFilters = map[string][2]string{
 
 // Latest rows per library kind: movies by arrival, shows by newest episode.
 var plexLatest = map[string]url.Values{
-	"movie": {"type": {"1"}, "sort": {"addedAt:desc"}},
-	"show":  {"type": {"2"}, "sort": {"episode.addedAt:desc"}},
+	"movie":  {"type": {"1"}, "sort": {"addedAt:desc"}},
+	"show":   {"type": {"2"}, "sort": {"episode.addedAt:desc"}},
+	"artist": {"type": {"9"}, "sort": {"addedAt:desc"}},
 }
 
 var errNotFound = errors.New("not found")
@@ -186,6 +199,8 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 	types := plexTypes(q)
 	empty := ItemsResult{Items: []Item{}, StartIndex: page.Start}
 	switch {
+	case len(q["includeitemtypes"]) > 0 && len(types) == 0, len(q["genreids"]) > 0:
+		return empty, nil
 	case len(q["ids"]) > 0:
 		return s.byIDs(q["ids"])
 	case q.Get("isfavorite") == "true" || slices.ContainsFunc(q["filters"], func(f string) bool { return strings.EqualFold(f, "IsFavorite") }):
@@ -197,7 +212,10 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		found, err := s.plex.Search(q.Get("searchterm"), searchLimit)
 		return s.result(ofTypes(found, types), page), err
 	}
-	kind, key, ok := DecodeID(q.Get("parentid"))
+	// Music apps name an artist or album to list what it holds.
+	parent := cmp.Or(q.Get("albumartistids"), q.Get("artistids"), q.Get("albumids"), q.Get("parentid"))
+	recursive := q.Get("recursive") == "true" || q.Get("parentid") == ""
+	kind, key, ok := DecodeID(parent)
 	switch {
 	case ok && kind == KindLibrary && key == collectionsKey:
 		sections, err := s.plex.Sections()
@@ -219,7 +237,7 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		return ItemsResult{Items: ToItems(s.serverID, c.Metadata), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
 	case ok && kind == KindItem:
 		children := s.plex.Children
-		if slices.Contains(types, "episode") && q.Get("recursive") == "true" {
+		if (slices.Contains(types, "episode") || slices.Contains(types, "track")) && recursive {
 			children = s.episodesUnder
 		}
 		found, err := children(key)
@@ -279,11 +297,12 @@ func (s *Server) byIDs(ids []string) (ItemsResult, error) {
 	return s.result(found, Page{Size: allItems}), nil
 }
 
-// episodesUnder lists the episodes of a show or a season: Plex's allLeaves
-// answers only for shows, and a season's children are its episodes.
+// episodesUnder lists what plays under a show, season, artist or album:
+// Plex's allLeaves answers only above the folders, so a season's or an
+// album's children are its leaves.
 func (s *Server) episodesUnder(key string) ([]PlexMetadata, error) {
 	children, err := s.plex.Children(key)
-	if err != nil || !slices.ContainsFunc(children, func(m PlexMetadata) bool { return m.Type == "season" }) {
+	if err != nil || !slices.ContainsFunc(children, func(m PlexMetadata) bool { return slices.Contains(folderTypes, m.Type) }) {
 		return children, err
 	}
 	return s.plex.AllLeaves(key)
@@ -298,7 +317,9 @@ func (s *Server) plexItem(id string) (PlexMetadata, error) {
 }
 
 // A library counts its top-level items, and everything playable in it.
-var sectionCounts = map[string][2]string{"movie": {"movie", "movie"}, "show": {"show", "episode"}}
+var sectionCounts = map[string][2]string{
+	"movie": {"movie", "movie"}, "show": {"show", "episode"}, "artist": {"artist", "track"},
+}
 
 func (s *Server) libraries() ([]Item, error) {
 	sections, err := s.plex.Sections()
@@ -552,9 +573,16 @@ func adjacentTo(episodes []PlexMetadata, ratingKey string) []PlexMetadata {
 	return episodes[max(i-1, 0):min(i+2, len(episodes))]
 }
 
+// playbackInfo also saves the tracks a client asks for, so a choice made
+// before playing reaches Plex even if playback stops at once.
 func (s *Server) playbackInfo(w http.ResponseWriter, r *http.Request) {
-	var request struct{ MediaSourceId string }
+	var request PlaybackReport
 	json.NewDecoder(r.Body).Decode(&request)
+	if m, err := s.plexItem(r.PathValue("id")); err == nil {
+		if err := s.rememberTracks(m, request); err != nil {
+			log.Printf("remember tracks: %v", err)
+		}
+	}
 	item, err := s.lookup(r.PathValue("id"))
 	sources := item.MediaSources
 	if request.MediaSourceId != "" {
