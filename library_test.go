@@ -1,7 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"net/url"
+	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -78,4 +81,25 @@ func TestImageBox(t *testing.T) {
 			t.Errorf("%q: %dx%d, want %dx%d", tc.query, width, height, tc.width, tc.height)
 		}
 	}
+}
+
+func TestSortMergedRandomShuffles(t *testing.T) {
+	const items, runs = 20, 20
+	var titles []PlexMetadata
+	for i := range items {
+		titles = append(titles, PlexMetadata{Title: strconv.Itoa(100 + i)})
+	}
+	byTitle := func(a, b PlexMetadata) int { return cmp.Compare(a.Title, b.Title) }
+	for range runs {
+		merged := slices.Clone(titles)
+		sortMerged(merged, "random")
+		if !slices.IsSortedFunc(merged, byTitle) {
+			slices.SortFunc(merged, byTitle)
+			if !slices.EqualFunc(merged, titles, func(a, b PlexMetadata) bool { return a.Title == b.Title }) {
+				t.Fatalf("shuffle lost or duplicated items: %v", merged)
+			}
+			return
+		}
+	}
+	t.Errorf("random merge came out in title order %d times in a row", runs)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"slices"
@@ -315,6 +316,10 @@ func (s *Server) acrossLibraries(q url.Values, types []string, page Page) (Items
 
 func sortMerged(found []PlexMetadata, sort string) {
 	field, order, _ := strings.Cut(sort, ":")
+	if field == "random" {
+		rand.Shuffle(len(found), func(i, j int) { found[i], found[j] = found[j], found[i] })
+		return
+	}
 	compare := func(a, b PlexMetadata) int { return cmp.Compare(a.TitleSort+a.Title, b.TitleSort+b.Title) }
 	if field == "addedAt" {
 		compare = func(a, b PlexMetadata) int { return cmp.Compare(a.AddedAt, b.AddedAt) }
