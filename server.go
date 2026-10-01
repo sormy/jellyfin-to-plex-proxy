@@ -205,6 +205,7 @@ func (s *Server) routes() {
 	s.private("GET /System/Endpoint", emptyObject)
 	s.private("POST /Sessions/Logout", noContent)
 	s.private("GET /Genres", s.genres)
+	s.private("GET /Playlists/{id}/Items", s.playlistItems)
 	s.private("GET /Artists", s.artists)
 	s.private("GET /Artists/AlbumArtists", s.artists)
 	s.private("GET /Items/{id}/File", s.audioFile)

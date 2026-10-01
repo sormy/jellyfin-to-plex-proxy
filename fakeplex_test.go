@@ -26,6 +26,7 @@ const (
 	fakeMusicSection    = "3"
 	fakeSeriesKey       = "200"
 	fakeCollectionKey   = "150"
+	fakePlaylistKey     = "500"
 	fakePartFileSize    = 4096
 	fakeSubtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nhello\n"
 	fakeMaxImageSide    = 16384
@@ -99,6 +100,9 @@ func (p *fakePlex) seed() {
 	p.add(PlexMetadata{RatingKey: fakeCollectionKey, Type: "collection", Title: "Fake Saga", ChildCount: 2})
 	p.members[fakeCollectionKey] = []string{"101", "102"}
 	p.addMusic()
+	p.add(PlexMetadata{RatingKey: fakePlaylistKey, Type: "playlist", Title: "Fake Mix", PlaylistType: "audio", LeafCount: 2,
+		Duration: 2 * fakeTrackMs, Composite: "/playlists/" + fakePlaylistKey + "/composite/1"})
+	p.members[fakePlaylistKey] = []string{"403", "402"}
 	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
 	p.addShow("300", "The Other Show", 1, 1)
 }
@@ -166,6 +170,19 @@ func (p *fakePlex) routes() {
 		p.list(w, r, kind, sectionHolds[kind])
 	})
 	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "", nil) })
+	p.mux.HandleFunc("GET /playlists", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.Type == "playlist" })})
+	})
+	p.mux.HandleFunc("GET /playlists/{key}", func(w http.ResponseWriter, r *http.Request) {
+		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.Type == "playlist" && m.RatingKey == r.PathValue("key") })})
+	})
+	p.mux.HandleFunc("GET /playlists/{key}/items", func(w http.ResponseWriter, r *http.Request) {
+		var items []PlexMetadata
+		for _, key := range p.members[r.PathValue("key")] {
+			items = append(items, withoutStreams(p.view(p.items[key])))
+		}
+		p.write(w, PlexContainer{Metadata: items})
+	})
 	p.mux.HandleFunc("GET /library/sections/{section}/genre", func(w http.ResponseWriter, r *http.Request) {
 		kind := fakeTypeNames[r.URL.Query().Get("type")]
 		var genres []PlexDirectory

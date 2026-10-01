@@ -63,7 +63,7 @@ func (s *Server) image(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	artwork := map[string]string{
-		"primary":  m.Thumb,
+		"primary":  cmp.Or(m.Thumb, m.Composite),
 		"backdrop": m.Art,
 		"thumb":    cmp.Or(m.Art, m.Thumb),
 	}[r.PathValue("type")]

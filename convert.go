@@ -25,6 +25,7 @@ var itemTypes = map[string]string{
 	"artist":     "MusicArtist",
 	"album":      "MusicAlbum",
 	"track":      "Audio",
+	"playlist":   "Playlist",
 }
 
 var streamTypes = map[int]string{1: "Video", 2: "Audio", 3: "Subtitle"}
@@ -133,6 +134,15 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 		item.ArtistItems = []NameID{performer}
 		item.Artists = []string{performer.Name}
 		item.ProductionYear = cmp.Or(m.Year, m.ParentYear)
+		item.PrimaryImageAspectRatio = squareAspectRatio
+	case "playlist":
+		item.Id = EncodeID(KindPlaylist, m.RatingKey)
+		item.IsFolder = true
+		item.ChildCount = m.LeafCount
+		item.MediaType = map[bool]string{true: "Audio", false: "Video"}[m.PlaylistType == "audio"]
+		if tag := imageTag(m.Composite); tag != "" {
+			item.ImageTags = map[string]string{"Primary": tag}
+		}
 		item.PrimaryImageAspectRatio = squareAspectRatio
 	case "collection":
 		item.IsFolder = true

@@ -219,6 +219,9 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		return empty, nil
 	case len(q["ids"]) > 0:
 		return s.byIDs(q["ids"])
+	case slices.Contains(types, "playlist"):
+		playlists, err := s.plex.Playlists()
+		return s.result(playlists, page), err
 	case q.Get("searchterm") != "":
 		if page.Start > 0 {
 			return empty, nil
@@ -249,6 +252,9 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		}
 		c, err := s.plex.SectionItems(key, plexQuery(q, firstOr(held, "")), page)
 		return ItemsResult{Items: ToItems(s.serverID, s.withAlbumTotals(c.Metadata)), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
+	case ok && kind == KindPlaylist:
+		found, err := s.plex.PlaylistItems(key)
+		return s.result(ofTypes(found, types), page), err
 	case ok && kind == KindItem:
 		children := s.plex.Children
 		if (slices.Contains(types, "episode") || slices.Contains(types, "track")) && recursive {
@@ -327,10 +333,21 @@ func (s *Server) episodesUnder(key string) ([]PlexMetadata, error) {
 
 func (s *Server) plexItem(id string) (PlexMetadata, error) {
 	kind, key, ok := DecodeID(strings.ReplaceAll(id, "-", ""))
-	if !ok || kind != KindItem {
+	switch {
+	case ok && kind == KindItem:
+		return s.plex.Item(key)
+	case ok && kind == KindPlaylist:
+		return s.plex.Playlist(key)
+	default:
 		return PlexMetadata{}, errNotFound
 	}
-	return s.plex.Item(key)
+}
+
+func (s *Server) playlistItems(w http.ResponseWriter, r *http.Request) {
+	q := query(r)
+	q["parentid"] = []string{r.PathValue("id")}
+	result, err := s.queryItems(q)
+	respond(w, result, err)
 }
 
 // A library counts its top-level items, and everything playable in it.

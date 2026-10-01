@@ -15,10 +15,11 @@ const ticksPerMillisecond = 10_000
 type IDKind byte
 
 const (
-	KindItem    IDKind = '0'
-	KindLibrary IDKind = '1'
-	KindPart    IDKind = '2'
-	KindGenre   IDKind = '3'
+	KindItem     IDKind = '0'
+	KindLibrary  IDKind = '1'
+	KindPart     IDKind = '2'
+	KindGenre    IDKind = '3'
+	KindPlaylist IDKind = '4'
 )
 
 func EncodeID(kind IDKind, plexKey string) string {

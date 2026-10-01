@@ -951,6 +951,36 @@ func TestFinampRequiredFields(t *testing.T) {
 	}
 }
 
+// TestPlaylists lists Plex playlists and their tracks, as Finamp's
+// Playlists tab does.
+func TestPlaylists(t *testing.T) {
+	c := newClient(t)
+	playlists := c.items("/Items", url.Values{"IncludeItemTypes": {"Playlist"}, "Recursive": {"true"}, "SortBy": {"SortName"}}).Items
+	i := slices.IndexFunc(playlists, func(p Item) bool { return p.ChildCount > 0 && p.ChildCount <= 50 })
+	if i < 0 {
+		t.Skip("no small playlist with items")
+	}
+	playlist := playlists[i]
+	if playlist.Type != "Playlist" || playlist.MediaType == "" || playlist.RunTimeTicks == 0 {
+		t.Errorf("playlist %+v", playlist)
+	}
+	byEndpoint := c.items("/Playlists/"+playlist.Id+"/Items", nil).Items
+	byParent := c.items("/Items", url.Values{"ParentId": {playlist.Id}}).Items
+	if len(byEndpoint) != playlist.ChildCount || len(byParent) != playlist.ChildCount || byEndpoint[0].Type == "" {
+		t.Errorf("%s counts %d, lists %d and %d", playlist.Name, playlist.ChildCount, len(byEndpoint), len(byParent))
+	}
+	if c.item(playlist.Id).Name != playlist.Name {
+		t.Error("playlist lookup differs")
+	}
+	if playlist.ImageTags["Primary"] != "" {
+		resp := c.do(http.MethodGet, "/Items/"+playlist.Id+"/Images/Primary", url.Values{"maxWidth": {"300"}}, nil)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Errorf("playlist image: %d", resp.StatusCode)
+		}
+	}
+}
+
 // TestGenres lists a library's genres and the items in one, as Finamp's
 // Genres tab does.
 func TestGenres(t *testing.T) {

@@ -88,6 +88,8 @@ type PlexMetadata struct {
 	GrandparentTitle      string      `json:"grandparentTitle"`
 	LibrarySectionID      int         `json:"librarySectionID"`
 	UserRating            float64     `json:"userRating"`
+	Composite             string      `json:"composite"`
+	PlaylistType          string      `json:"playlistType"`
 	Thumb                 string      `json:"thumb"`
 	Art                   string      `json:"art"`
 	GrandparentThumb      string      `json:"grandparentThumb"`
@@ -290,6 +292,24 @@ func (p *Plex) SetPlayed(ratingKey string, played bool) error {
 		path = "/:/scrobble"
 	}
 	return p.call(http.MethodGet, path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
+}
+
+func (p *Plex) Playlists() ([]PlexMetadata, error) {
+	c, err := p.get("/playlists", nil, nil)
+	return c.Metadata, err
+}
+
+func (p *Plex) Playlist(ratingKey string) (PlexMetadata, error) {
+	c, err := p.get("/playlists/"+ratingKey, nil, nil)
+	if err != nil || len(c.Metadata) == 0 {
+		return PlexMetadata{}, cmp.Or(err, errNotFound)
+	}
+	return c.Metadata[0], nil
+}
+
+func (p *Plex) PlaylistItems(ratingKey string) ([]PlexMetadata, error) {
+	c, err := p.get("/playlists/"+ratingKey+"/items", nil, Page{Size: allItems}.header())
+	return c.Metadata, err
 }
 
 // Genres lists a section's genres for items of one Plex type.
