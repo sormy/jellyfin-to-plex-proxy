@@ -175,7 +175,7 @@ func TestDuplicateTrackTitlesNumbered(t *testing.T) {
 	for _, s := range item.MediaStreams {
 		titles = append(titles, s.DisplayTitle)
 	}
-	want := []string{"Surround 5.1 (Русский DTS) #1", "Surround 5.1 (Русский DTS) #2", "Stereo (English AAC)", "Surround 5.1 (Русский DTS)"}
+	want := []string{"1. Surround 5.1 (Русский DTS)", "2. Surround 5.1 (Русский DTS)", "3. Stereo (English AAC)", "Surround 5.1 (Русский DTS)"}
 	if !slices.Equal(titles, want) {
 		t.Errorf("got %v, want %v", titles, want)
 	}

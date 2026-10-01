@@ -370,18 +370,20 @@ func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaS
 	return streams, audio, subtitle
 }
 
-// numberDuplicateTitles tells apart tracks that would read the same in a picker.
+// numberDuplicateTitles numbers every track of a kind, in list order, once
+// two of them would read the same in a picker.
 func numberDuplicateTitles(streams []MediaStream) {
 	seen := map[string]int{}
+	collides := map[string]bool{}
 	for _, s := range streams {
 		seen[s.Type+s.DisplayTitle]++
+		collides[s.Type] = collides[s.Type] || seen[s.Type+s.DisplayTitle] > 1
 	}
-	occurrence := map[string]int{}
+	position := map[string]int{}
 	for i, s := range streams {
-		key := s.Type + s.DisplayTitle
-		if seen[key] > 1 {
-			occurrence[key]++
-			streams[i].DisplayTitle = fmt.Sprintf("%s #%d", s.DisplayTitle, occurrence[key])
+		if collides[s.Type] {
+			position[s.Type]++
+			streams[i].DisplayTitle = fmt.Sprintf("%d. %s", position[s.Type], s.DisplayTitle)
 		}
 	}
 }
