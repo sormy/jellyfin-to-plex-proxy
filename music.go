@@ -75,7 +75,7 @@ func (s *Server) genres(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue
 		}
-		found, err := s.plex.Genres(section.Key, plexType)
+		found, err := s.plex.SectionValues(section.Key, "genre", plexType)
 		if err != nil {
 			fail(w, err)
 			return

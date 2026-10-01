@@ -166,6 +166,9 @@ func plexQuery(q url.Values, plexType string) url.Values {
 	if len(genres) > 0 {
 		v.Set("genre", strings.Join(genres, ","))
 	}
+	if ratings := valuesOf(q, "officialratings"); len(ratings) > 0 {
+		v.Set("contentRating", strings.Join(ratings, ","))
+	}
 	switch q.Get("isplayed") {
 	case "true":
 		v.Set("unwatched", "0")
@@ -250,7 +253,17 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 		if len(types) > 0 && len(held) == 0 {
 			return empty, nil
 		}
-		c, err := s.plex.SectionItems(key, plexQuery(q, firstOr(held, "")), page)
+		plexFilter := plexQuery(q, firstOr(held, ""))
+		named, err := s.genreKeys(q)
+		if err != nil {
+			return ItemsResult{}, err
+		}
+		if len(named) > 0 {
+			plexFilter.Set("genre", strings.Join(append(named, valuesOf(plexFilter, "genre")...), ","))
+		} else if len(valuesOf(q, "genres")) > 0 {
+			return empty, nil
+		}
+		c, err := s.plex.SectionItems(key, plexFilter, page)
 		return ItemsResult{Items: ToItems(s.serverID, s.withAlbumTotals(c.Metadata)), TotalRecordCount: c.TotalSize, StartIndex: page.Start}, err
 	case ok && kind == KindPlaylist:
 		found, err := s.plex.PlaylistItems(key)

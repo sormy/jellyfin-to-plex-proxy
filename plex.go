@@ -321,9 +321,10 @@ func (p *Plex) PlaylistItems(ratingKey string) ([]PlexMetadata, error) {
 	return c.Metadata, err
 }
 
-// Genres lists a section's genres for items of one Plex type.
-func (p *Plex) Genres(section, plexType string) ([]PlexDirectory, error) {
-	c, err := p.get("/library/sections/"+section+"/genre", url.Values{"type": {plexType}}, nil)
+// SectionValues lists the values a section's items of one Plex type hold
+// for a field Plex filters by: genre, year or contentRating.
+func (p *Plex) SectionValues(section, field, plexType string) ([]PlexDirectory, error) {
+	c, err := p.get("/library/sections/"+section+"/"+field, url.Values{"type": {plexType}}, nil)
 	return c.Directory, err
 }
 

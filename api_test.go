@@ -1037,6 +1037,33 @@ func TestPlaylists(t *testing.T) {
 	}
 }
 
+// TestFilters offers a library's genres, years and ratings, and filters by
+// each as Swiftfin's filter bar does.
+func TestFilters(t *testing.T) {
+	c := newClient(t)
+	views := c.items("/UserViews", nil).Items
+	movies := views[slices.IndexFunc(views, func(v Item) bool { return v.CollectionType == "movies" })]
+	scope := url.Values{"parentId": {movies.Id}, "includeItemTypes": {"Movie"}}
+	var legacy QueryFiltersLegacy
+	c.expect(http.MethodGet, "/Items/Filters", scope, nil, http.StatusOK, &legacy)
+	var current QueryFilters
+	c.expect(http.MethodGet, "/Items/Filters2", scope, nil, http.StatusOK, &current)
+	if len(legacy.Genres) == 0 || len(legacy.Years) == 0 || len(legacy.OfficialRatings) == 0 || len(current.Genres) == 0 {
+		t.Fatalf("filters: %+v, %+v", legacy, current)
+	}
+	all := c.items("/Items", url.Values{"parentId": {movies.Id}, "includeItemTypes": {"Movie"}}).Items
+	for _, tc := range []struct{ key, value string }{
+		{"genres", current.Genres[0].Name},
+		{"years", strconv.Itoa(legacy.Years[0])},
+		{"officialRatings", legacy.OfficialRatings[0]},
+	} {
+		narrowed := c.items("/Items", url.Values{"parentId": {movies.Id}, "includeItemTypes": {"Movie"}, tc.key: {tc.value}}).Items
+		if len(narrowed) == 0 || len(narrowed) >= len(all) {
+			t.Errorf("%s=%s: %d of %d", tc.key, tc.value, len(narrowed), len(all))
+		}
+	}
+}
+
 // TestGenres lists a library's genres and the items in one, as Finamp's
 // Genres tab does.
 func TestGenres(t *testing.T) {
@@ -1178,7 +1205,7 @@ func TestStubs(t *testing.T) {
 	id := c.series().Id
 	for _, path := range []string{
 		"/Items/" + id + "/LocalTrailers", "/Items/" + id + "/SpecialFeatures", "/Items/" + id + "/Similar",
-		"/Videos/" + id + "/AdditionalParts", "/Persons", "/Items/Filters", "/Items/Filters2", "/MediaSegments/" + id, "/Genres",
+		"/Videos/" + id + "/AdditionalParts", "/Persons", "/MediaSegments/" + id, "/Genres",
 	} {
 		c.expect(http.MethodGet, path, nil, nil, http.StatusOK, nil)
 	}

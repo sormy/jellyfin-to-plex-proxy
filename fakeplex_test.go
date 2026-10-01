@@ -94,6 +94,7 @@ func (p *fakePlex) seed() {
 			Duration: fakeMovieMs, Media: fakeMedia(100+i, fakeMovieMs, fakeBitrate)})
 	}
 	p.items["102"].Genre = []PlexTag{{ID: fakeDramaGenre, Tag: "Fake Drama"}}
+	p.items["102"].ContentRating, p.items["103"].ContentRating = "PG-13", "R"
 	// Plex merges versions of one title, as a trailer filed beside the movie.
 	first := p.items["101"]
 	first.Media = append(fakeMedia(1001, fakeTrailerMs, fakeBitrate/2), first.Media...)
@@ -193,15 +194,28 @@ func (p *fakePlex) routes() {
 		}
 		p.write(w, PlexContainer{Metadata: items})
 	})
-	p.mux.HandleFunc("GET /library/sections/{section}/genre", func(w http.ResponseWriter, r *http.Request) {
+	// Plex lists the values a section's items hold for each field it filters by.
+	p.mux.HandleFunc("GET /library/sections/{section}/{field}", func(w http.ResponseWriter, r *http.Request) {
 		kind := fakeTypeNames[r.URL.Query().Get("type")]
-		var genres []PlexDirectory
-		for _, m := range p.matching(func(m *PlexMetadata) bool { return m.Type == kind }) {
-			for _, g := range m.Genre {
-				genres = append(genres, PlexDirectory{Key: strconv.Itoa(g.ID), Title: g.Tag})
+		var values []PlexDirectory
+		add := func(key, title string) {
+			if key != "" && key != "0" && !slices.ContainsFunc(values, func(v PlexDirectory) bool { return v.Key == key }) {
+				values = append(values, PlexDirectory{Key: key, Title: title})
 			}
 		}
-		p.write(w, PlexContainer{Directory: genres})
+		for _, m := range p.matching(func(m *PlexMetadata) bool { return m.Type == kind }) {
+			switch r.PathValue("field") {
+			case "genre":
+				for _, g := range m.Genre {
+					add(strconv.Itoa(g.ID), g.Tag)
+				}
+			case "year":
+				add(strconv.Itoa(m.Year), strconv.Itoa(m.Year))
+			case "contentRating":
+				add(m.ContentRating, m.ContentRating)
+			}
+		}
+		p.write(w, PlexContainer{Directory: values})
 	})
 	p.mux.HandleFunc("GET /library/metadata/{key}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := p.items[r.PathValue("key")]
@@ -451,8 +465,11 @@ func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string,
 		inSection := holds == nil || slices.Contains(holds, m.Type)
 		ratingMatches := !rated || strconv.FormatFloat(m.UserRating, 'f', -1, 64) == rating
 		inAlbum := !q.Has("album.id") || slices.Contains(albums, m.ParentRatingKey)
-		inGenre := !q.Has("genre") || slices.ContainsFunc(p.genresOf(m), func(g PlexTag) bool { return strconv.Itoa(g.ID) == q.Get("genre") })
-		return m.Type == plexType && inSection && ratingMatches && inAlbum && inGenre && (unwatched == "" || (unwatched == "1") != played)
+		genres := strings.Split(q.Get("genre"), ",")
+		inGenre := !q.Has("genre") || slices.ContainsFunc(p.genresOf(m), func(g PlexTag) bool { return slices.Contains(genres, strconv.Itoa(g.ID)) })
+		inYear := !q.Has("year") || slices.Contains(strings.Split(q.Get("year"), ","), strconv.Itoa(m.Year))
+		inRating := !q.Has("contentRating") || slices.Contains(strings.Split(q.Get("contentRating"), ","), m.ContentRating)
+		return m.Type == plexType && inSection && ratingMatches && inAlbum && inGenre && inYear && inRating && (unwatched == "" || (unwatched == "1") != played)
 	})
 	field, order, _ := strings.Cut(q.Get("sort"), ":")
 	key := map[string]func(PlexMetadata) string{
