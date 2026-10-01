@@ -35,7 +35,7 @@ const (
 
 var jellyfinToPlexTypes = map[string]string{
 	"movie": "movie", "series": "show", "season": "season", "episode": "episode",
-	"musicartist": "artist", "musicalbum": "album", "audio": "track",
+	"musicartist": "artist", "musicalbum": "album", "audio": "track", "playlist": "playlist",
 }
 
 var plexTypeNumbers = map[string]string{

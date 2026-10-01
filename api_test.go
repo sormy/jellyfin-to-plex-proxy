@@ -957,8 +957,11 @@ func TestPlaylists(t *testing.T) {
 	c := newClient(t)
 	playlists := c.items("/Items", url.Values{"IncludeItemTypes": {"Playlist"}, "Recursive": {"true"}, "SortBy": {"SortName"}}).Items
 	i := slices.IndexFunc(playlists, func(p Item) bool { return p.ChildCount > 0 && p.ChildCount <= 50 })
-	if i < 0 {
+	switch {
+	case i < 0 && c.live:
 		t.Skip("no small playlist with items")
+	case i < 0:
+		t.Fatalf("no playlist among %+v", playlists)
 	}
 	playlist := playlists[i]
 	if playlist.Type != "Playlist" || playlist.MediaType == "" || playlist.RunTimeTicks == 0 {
