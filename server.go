@@ -26,8 +26,10 @@ const idLength = 32
 var collectionTypes = map[string]string{"movie": "movies", "show": "tvshows", "artist": "music"}
 
 type Config struct {
-	UserName string
-	Password string
+	UserName        string
+	Password        string
+	MaxFailedLogins int
+	LoginLockout    time.Duration
 }
 
 type Server struct {
@@ -50,7 +52,7 @@ func NewServer(plex *Plex, config Config) (*Server, error) {
 		serverID:   identity.MachineIdentifier[:idLength],
 		serverName: identity.FriendlyName,
 		mux:        http.NewServeMux(),
-		logins:     NewLoginThrottle(time.Now),
+		logins:     NewLoginThrottle(time.Now, config.MaxFailedLogins, config.LoginLockout),
 	}
 	s.routes()
 	return s, nil

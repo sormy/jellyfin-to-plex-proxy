@@ -7,16 +7,19 @@ import (
 )
 
 const (
-	maxFailedLogins = 5
-	loginLockout    = 15 * time.Minute
+	defaultMaxFailedLogins = 5
+	defaultLoginLockout    = 15 * time.Minute
 )
 
 // LoginThrottle locks a user name after repeated wrong passwords, so guessing
-// one is slow; a success, or a quiet lockout period, clears the count.
+// one is slow; a success, or a quiet lockout period, clears the count. A
+// limit of 0 turns it off.
 type LoginThrottle struct {
-	mu     sync.Mutex
-	now    func() time.Time
-	byName map[string]*loginFailures
+	mu          sync.Mutex
+	now         func() time.Time
+	maxFailures int
+	lockout     time.Duration
+	byName      map[string]*loginFailures
 }
 
 type loginFailures struct {
@@ -25,8 +28,8 @@ type loginFailures struct {
 	lockedUntil time.Time
 }
 
-func NewLoginThrottle(now func() time.Time) *LoginThrottle {
-	return &LoginThrottle{now: now, byName: map[string]*loginFailures{}}
+func NewLoginThrottle(now func() time.Time, maxFailures int, lockout time.Duration) *LoginThrottle {
+	return &LoginThrottle{now: now, maxFailures: maxFailures, lockout: lockout, byName: map[string]*loginFailures{}}
 }
 
 // Locked tells how long a user name stays locked, zero when it is not.
@@ -40,11 +43,14 @@ func (t *LoginThrottle) Locked(name string) time.Duration {
 }
 
 func (t *LoginThrottle) Failed(name string) {
+	if t.maxFailures <= 0 {
+		return
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	now := t.now()
 	for key, f := range t.byName {
-		if now.Sub(f.last) > loginLockout && now.After(f.lockedUntil) {
+		if now.Sub(f.last) > t.lockout && now.After(f.lockedUntil) {
 			delete(t.byName, key)
 		}
 	}
@@ -56,8 +62,8 @@ func (t *LoginThrottle) Failed(name string) {
 	}
 	f.count++
 	f.last = now
-	if f.count >= maxFailedLogins {
-		f.count, f.lockedUntil = 0, now.Add(loginLockout)
+	if f.count >= t.maxFailures {
+		f.count, f.lockedUntil = 0, now.Add(t.lockout)
 	}
 }
 

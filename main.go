@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -37,9 +39,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("PLEX_URL: %v", err)
 	}
+	maxFailures, err := strconv.Atoi(cmp.Or(os.Getenv("LOGIN_MAX_FAILURES"), strconv.Itoa(defaultMaxFailedLogins)))
+	if err != nil || maxFailures < 0 {
+		log.Fatalf("LOGIN_MAX_FAILURES: want a count, 0 for off: %q", os.Getenv("LOGIN_MAX_FAILURES"))
+	}
+	lockout, err := time.ParseDuration(cmp.Or(os.Getenv("LOGIN_LOCKOUT"), defaultLoginLockout.String()))
+	if err != nil || lockout <= 0 {
+		log.Fatalf("LOGIN_LOCKOUT: want a duration such as 15m: %q", os.Getenv("LOGIN_LOCKOUT"))
+	}
 	server, err := NewServer(NewPlex(plexURL, requireEnv("PLEX_TOKEN")), Config{
-		UserName: cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName),
-		Password: cmp.Or(os.Getenv("JELLYFIN_PASSWORD"), defaultPassword),
+		UserName:        cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName),
+		Password:        cmp.Or(os.Getenv("JELLYFIN_PASSWORD"), defaultPassword),
+		MaxFailedLogins: maxFailures,
+		LoginLockout:    lockout,
 	})
 	if err != nil {
 		log.Fatalf("plex: %v", err)

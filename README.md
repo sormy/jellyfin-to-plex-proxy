@@ -21,16 +21,18 @@ From [Releases](https://github.com/sormy/jellyfin-to-plex-proxy/releases/latest)
 
 ## Configure
 
-| Variable            | Default                  | Meaning                                            |
-| ------------------- | ------------------------ | -------------------------------------------------- |
-| `PLEX_TOKEN`        | required                 | the Plex owner's token                             |
-| `JELLYFIN_USERNAME` | `jellyfin`               | user name apps sign in with                        |
-| `JELLYFIN_PASSWORD` | `jellyfin`               | password apps sign in with                         |
-| `PLEX_URL`          | `http://127.0.0.1:32400` | Plex Media Server                                  |
-| `LISTEN`            | `:8096`                  | Jellyfin API address                               |
-| `TLS_CERT`          | —                        | certificate chain; with `TLS_KEY`, serve HTTPS too |
-| `TLS_KEY`           | —                        | its private key                                    |
-| `LISTEN_TLS`        | `:8920`                  | HTTPS address                                      |
+| Variable             | Default                  | Meaning                                                 |
+| -------------------- | ------------------------ | ------------------------------------------------------- |
+| `PLEX_TOKEN`         | required                 | the Plex owner's token                                  |
+| `JELLYFIN_USERNAME`  | `jellyfin`               | user name apps sign in with                             |
+| `JELLYFIN_PASSWORD`  | `jellyfin`               | password apps sign in with                              |
+| `PLEX_URL`           | `http://127.0.0.1:32400` | Plex Media Server                                       |
+| `LISTEN`             | `:8096`                  | Jellyfin API address                                    |
+| `TLS_CERT`           | —                        | certificate chain; with `TLS_KEY`, serve HTTPS too      |
+| `TLS_KEY`            | —                        | its private key                                         |
+| `LISTEN_TLS`         | `:8920`                  | HTTPS address                                           |
+| `LOGIN_MAX_FAILURES` | `5`                      | wrong passwords before a user name locks; `0` for never |
+| `LOGIN_LOCKOUT`      | `15m`                    | how long it stays locked                                |
 
 ## Plex token
 
@@ -193,8 +195,8 @@ stream URL is valid only with the play session the proxy signed for that item.
 
 - One user, the Plex owner. Plex managed users are not exposed.
 - Anyone on the network who knows the user name and password gets the owner's library: change the
-  defaults where the network is not yours alone. Five wrong passwords in a row lock a user name out
-  for 15 minutes; apps already signed in keep working.
+  defaults where the network is not yours alone. Wrong passwords in a row lock a user name out, by
+  default five for 15 minutes; apps already signed in keep working.
 - Video plays as stored: the app must decode the file, as Swiftfin's default player does.
 - Only music transcodes, through Plex's transcoder, which loads codecs from Plex's data folder: that
   folder must not sit on a `noexec` mount.

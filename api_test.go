@@ -51,7 +51,10 @@ func intOf(s string) int {
 
 func newFakeServer(t *testing.T) *Server {
 	plexURL, _ := url.Parse(newFakePlex(t).URL)
-	server, err := NewServer(NewPlex(plexURL, fakePlexToken), Config{UserName: defaultUserName, Password: fakePassword})
+	server, err := NewServer(NewPlex(plexURL, fakePlexToken), Config{
+		UserName: defaultUserName, Password: fakePassword,
+		MaxFailedLogins: defaultMaxFailedLogins, LoginLockout: defaultLoginLockout,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +255,7 @@ func TestSignInThrottle(t *testing.T) {
 		resp.Body.Close()
 		return resp
 	}
-	for range make([]struct{}, maxFailedLogins) {
+	for range make([]struct{}, defaultMaxFailedLogins) {
 		if resp := signIn("wrong"); resp.StatusCode != http.StatusUnauthorized {
 			t.Fatalf("wrong password: %d", resp.StatusCode)
 		}
