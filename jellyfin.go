@@ -18,6 +18,7 @@ const (
 	KindItem    IDKind = '0'
 	KindLibrary IDKind = '1'
 	KindPart    IDKind = '2'
+	KindGenre   IDKind = '3'
 )
 
 func EncodeID(kind IDKind, plexKey string) string {

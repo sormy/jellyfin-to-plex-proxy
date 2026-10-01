@@ -32,6 +32,8 @@ const (
 	fakeTrailerMs       = 106_000
 	fakeBitrate         = 4000
 	fakeTrackMs         = 200_000
+	fakeRockGenre       = 900
+	fakeDramaGenre      = 901
 )
 
 // fakePlex is an in-memory Plex Media Server: the subset of its API the
@@ -40,13 +42,14 @@ type fakePlex struct {
 	mu      sync.Mutex
 	items   map[string]*PlexMetadata
 	members map[string][]string
+	decided map[string]bool
 	order   []string
 	clock   int64
 	mux     *http.ServeMux
 }
 
 func newFakePlex(t *testing.T) *httptest.Server {
-	p := &fakePlex{items: map[string]*PlexMetadata{}, members: map[string][]string{}, clock: 1_700_000_000, mux: http.NewServeMux()}
+	p := &fakePlex{items: map[string]*PlexMetadata{}, members: map[string][]string{}, decided: map[string]bool{}, clock: 1_700_000_000, mux: http.NewServeMux()}
 	p.seed()
 	p.routes()
 	server := httptest.NewServer(p)
@@ -89,6 +92,7 @@ func (p *fakePlex) seed() {
 		p.add(PlexMetadata{RatingKey: key, Type: "movie", Title: fmt.Sprintf("Movie %d", i), Year: 2000 + i,
 			Duration: fakeMovieMs, Media: fakeMedia(100+i, fakeMovieMs, fakeBitrate)})
 	}
+	p.items["102"].Genre = []PlexTag{{ID: fakeDramaGenre, Tag: "Fake Drama"}}
 	// Plex merges versions of one title, as a trailer filed beside the movie.
 	first := p.items["101"]
 	first.Media = append(fakeMedia(1001, fakeTrailerMs, fakeBitrate/2), first.Media...)
@@ -104,7 +108,7 @@ func (p *fakePlex) seed() {
 func (p *fakePlex) addMusic() {
 	p.add(PlexMetadata{RatingKey: "400", Type: "artist", Title: "Fake Band"})
 	p.add(PlexMetadata{RatingKey: "401", Type: "album", Title: "Fake Album", Year: 2020, Index: 1,
-		ParentRatingKey: "400", ParentTitle: "Fake Band"})
+		ParentRatingKey: "400", ParentTitle: "Fake Band", Genre: []PlexTag{{ID: fakeRockGenre, Tag: "Fake Rock"}}})
 	album := p.items["401"]
 	for i, title := range []string{"Opening", "Closing"} {
 		key := 402 + i
@@ -162,6 +166,16 @@ func (p *fakePlex) routes() {
 		p.list(w, r, kind, sectionHolds[kind])
 	})
 	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "", nil) })
+	p.mux.HandleFunc("GET /library/sections/{section}/genre", func(w http.ResponseWriter, r *http.Request) {
+		kind := fakeTypeNames[r.URL.Query().Get("type")]
+		var genres []PlexDirectory
+		for _, m := range p.matching(func(m *PlexMetadata) bool { return m.Type == kind }) {
+			for _, g := range m.Genre {
+				genres = append(genres, PlexDirectory{Key: strconv.Itoa(g.ID), Title: g.Tag})
+			}
+		}
+		p.write(w, PlexContainer{Directory: genres})
+	})
 	p.mux.HandleFunc("GET /library/metadata/{key}", func(w http.ResponseWriter, r *http.Request) {
 		m, ok := p.items[r.PathValue("key")]
 		if !ok {
@@ -248,9 +262,14 @@ func (p *fakePlex) routes() {
 		w.Header().Set("Content-Type", "image/jpeg")
 		w.Write([]byte{0xff, 0xd8, 0xff})
 	})
+	p.mux.HandleFunc("GET /music/:/transcode/universal/decision", func(w http.ResponseWriter, r *http.Request) {
+		p.decided[r.URL.Query().Get("session")] = true
+		p.write(w, PlexContainer{})
+	})
 	p.mux.HandleFunc("GET /music/:/transcode/universal/start.m3u8", func(w http.ResponseWriter, r *http.Request) {
-		// Plex converts only to a target the client declares.
-		if !strings.Contains(r.Header.Get("X-Plex-Client-Profile-Extra"), "protocol=hls") || p.items[strings.TrimPrefix(r.URL.Query().Get("path"), "/library/metadata/")] == nil {
+		// Plex converts only to a target the client declares, for a session it decided on.
+		if !strings.Contains(r.Header.Get("X-Plex-Client-Profile-Extra"), "protocol=hls") || !p.decided[r.URL.Query().Get("session")] ||
+			p.items[strings.TrimPrefix(r.URL.Query().Get("path"), "/library/metadata/")] == nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
@@ -405,7 +424,8 @@ func (p *fakePlex) list(w http.ResponseWriter, r *http.Request, plexType string,
 		inSection := holds == nil || slices.Contains(holds, m.Type)
 		ratingMatches := !rated || strconv.FormatFloat(m.UserRating, 'f', -1, 64) == rating
 		inAlbum := !q.Has("album.id") || slices.Contains(albums, m.ParentRatingKey)
-		return m.Type == plexType && inSection && ratingMatches && inAlbum && (unwatched == "" || (unwatched == "1") != played)
+		inGenre := !q.Has("genre") || slices.ContainsFunc(p.genresOf(m), func(g PlexTag) bool { return strconv.Itoa(g.ID) == q.Get("genre") })
+		return m.Type == plexType && inSection && ratingMatches && inAlbum && inGenre && (unwatched == "" || (unwatched == "1") != played)
 	})
 	field, order, _ := strings.Cut(q.Get("sort"), ":")
 	key := map[string]func(PlexMetadata) string{
@@ -449,4 +469,14 @@ func selectStream(streams []PlexStream, kind int, id string) {
 			streams[i].Selected = strconv.Itoa(streams[i].ID) == id
 		}
 	}
+}
+
+// genresOf is an item's genres; a track takes its album's, as Plex filters it.
+func (p *fakePlex) genresOf(m *PlexMetadata) []PlexTag {
+	if m.Type == "track" {
+		if album := p.items[m.ParentRatingKey]; album != nil {
+			return album.Genre
+		}
+	}
+	return m.Genre
 }

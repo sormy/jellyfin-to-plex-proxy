@@ -951,6 +951,33 @@ func TestFinampRequiredFields(t *testing.T) {
 	}
 }
 
+// TestGenres lists a library's genres and the items in one, as Finamp's
+// Genres tab does.
+func TestGenres(t *testing.T) {
+	c := newClient(t)
+	for _, tc := range []struct{ collection, genreType, itemType string }{
+		{"music", "MusicGenre", "MusicAlbum"}, {"movies", "Genre", "Movie"},
+	} {
+		views := c.items("/UserViews", nil).Items
+		i := slices.IndexFunc(views, func(v Item) bool { return v.CollectionType == tc.collection })
+		if i < 0 {
+			continue
+		}
+		genres := c.items("/Genres", url.Values{"ParentId": {views[i].Id}}).Items
+		if len(genres) == 0 || genres[0].Type != tc.genreType {
+			t.Errorf("%s genres: %+v", tc.collection, genres)
+			continue
+		}
+		inGenre := c.items("/Items", url.Values{
+			"GenreIds": {genres[0].Id}, "ParentId": {views[i].Id}, "IncludeItemTypes": {tc.itemType}, "Recursive": {"true"},
+		}).Items
+		all := c.items("/Items", url.Values{"ParentId": {views[i].Id}, "IncludeItemTypes": {tc.itemType}, "Recursive": {"true"}}).Items
+		if len(inGenre) == 0 || len(inGenre) >= len(all) && len(all) > 1 {
+			t.Errorf("%s in %s: %d of %d", tc.itemType, genres[0].Name, len(inGenre), len(all))
+		}
+	}
+}
+
 func TestMediaVersions(t *testing.T) {
 	c := newClient(t)
 	candidates := c.episodes(c.series())
@@ -1065,7 +1092,7 @@ func TestStubs(t *testing.T) {
 	id := c.series().Id
 	for _, path := range []string{
 		"/Items/" + id + "/LocalTrailers", "/Items/" + id + "/SpecialFeatures", "/Items/" + id + "/Similar",
-		"/Videos/" + id + "/AdditionalParts", "/Persons", "/Items/Filters", "/Items/Filters2", "/MediaSegments/" + id,
+		"/Videos/" + id + "/AdditionalParts", "/Persons", "/Items/Filters", "/Items/Filters2", "/MediaSegments/" + id, "/Genres",
 	} {
 		c.expect(http.MethodGet, path, nil, nil, http.StatusOK, nil)
 	}

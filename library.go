@@ -157,6 +157,15 @@ func plexQuery(q url.Values, plexType string) url.Values {
 	if favoritesOnly(q) {
 		v.Set("userRating", strconv.Itoa(lovedRating))
 	}
+	var genres []string
+	for _, id := range q["genreids"] {
+		if kind, key, ok := DecodeID(id); ok && kind == KindGenre {
+			genres = append(genres, key)
+		}
+	}
+	if len(genres) > 0 {
+		v.Set("genre", strings.Join(genres, ","))
+	}
 	switch q.Get("isplayed") {
 	case "true":
 		v.Set("unwatched", "0")
@@ -206,7 +215,7 @@ func (s *Server) queryItems(q url.Values) (ItemsResult, error) {
 	types := plexTypes(q)
 	empty := ItemsResult{Items: []Item{}, StartIndex: page.Start}
 	switch {
-	case len(q["includeitemtypes"]) > 0 && len(types) == 0, len(q["genreids"]) > 0:
+	case len(q["includeitemtypes"]) > 0 && len(types) == 0:
 		return empty, nil
 	case len(q["ids"]) > 0:
 		return s.byIDs(q["ids"])

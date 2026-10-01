@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -53,6 +54,48 @@ func (s *Server) withAlbumTotals(found []PlexMetadata) []PlexMetadata {
 	return found
 }
 
+// genreTypes names whose genres a library lists: a music library's albums,
+// as genre pages list albums.
+var genreTypes = map[string]string{"movie": "1", "show": "2", "artist": "9"}
+
+func (s *Server) genres(w http.ResponseWriter, r *http.Request) {
+	q := query(r)
+	sections, err := s.plex.Sections()
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	if kind, key, ok := DecodeID(q.Get("parentid")); ok && kind == KindLibrary {
+		sections = slices.DeleteFunc(sections, func(d PlexDirectory) bool { return d.Key != key })
+	}
+	genres := []Item{}
+	seen := map[string]bool{}
+	for _, section := range sections {
+		plexType, ok := genreTypes[section.Type]
+		if !ok {
+			continue
+		}
+		found, err := s.plex.Genres(section.Key, plexType)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		for _, genre := range found {
+			id := EncodeID(KindGenre, genre.Key)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			genres = append(genres, Item{
+				Id: id, ServerId: s.serverID, Name: genre.Title, IsFolder: true,
+				Type: map[bool]string{true: "MusicGenre", false: "Genre"}[section.Type == "artist"],
+			})
+		}
+	}
+	page := paging(q)
+	writeJSON(w, ItemsResult{Items: paginate(genres, page), TotalRecordCount: len(genres), StartIndex: page.Start})
+}
+
 func (s *Server) artists(w http.ResponseWriter, r *http.Request) {
 	q := query(r)
 	q["includeitemtypes"] = []string{"MusicArtist"}
@@ -81,7 +124,7 @@ func (s *Server) audioPlaylist(w http.ResponseWriter, r *http.Request) {
 	q := query(r)
 	session := strings.ToLower(cmp.Or(q.Get("playsessionid"), s.playSession(r.PathValue("id"))))
 	bitrate := cmp.Or(intParam(q, "audiobitrate"), intParam(q, "maxstreamingbitrate"), defaultAudioBitrate)
-	s.proxyAs(w, r, s.plex.URL(transcodePath+"start.m3u8", url.Values{
+	transcode := url.Values{
 		"path":         {"/library/metadata/" + m.RatingKey},
 		"mediaIndex":   {"0"},
 		"partIndex":    {"0"},
@@ -91,7 +134,13 @@ func (s *Server) audioPlaylist(w http.ResponseWriter, r *http.Request) {
 		"directStream": {"0"},
 		"hasMDE":       {"1"},
 		"musicBitrate": {strconv.Itoa(bitrate / bitsPerKilobit)},
-	}), transcoderHeader(session), "")
+	}
+	// Plex refuses to start a session it has not decided on first.
+	if err := s.plex.call(http.MethodGet, transcodePath+"decision", transcode, transcoderHeader(session)); err != nil {
+		fail(w, err)
+		return
+	}
+	s.proxyAs(w, r, s.plex.URL(transcodePath+"start.m3u8", transcode), transcoderHeader(session), "")
 }
 
 // audioSession relays a transcode's playlists and segments; the session id

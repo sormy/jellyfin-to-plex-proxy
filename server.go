@@ -204,6 +204,7 @@ func (s *Server) routes() {
 	s.private("GET /Items/{id}/PlaybackInfo", s.playbackInfo)
 	s.private("GET /System/Endpoint", emptyObject)
 	s.private("POST /Sessions/Logout", noContent)
+	s.private("GET /Genres", s.genres)
 	s.private("GET /Artists", s.artists)
 	s.private("GET /Artists/AlbumArtists", s.artists)
 	s.private("GET /Items/{id}/File", s.audioFile)
@@ -226,7 +227,7 @@ func (s *Server) routes() {
 	s.private("GET /Localization/Cultures", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, cultures) })
 	for _, pattern := range []string{
 		"GET /Items/{id}/Similar", "GET /Videos/{id}/AdditionalParts", "GET /Persons", "GET /LiveTv/Programs/Recommended",
-		"GET /MediaSegments/{id}", "GET /Genres", "GET /Albums/{id}/Similar", "GET /Items/{id}/InstantMix",
+		"GET /MediaSegments/{id}", "GET /Albums/{id}/Similar", "GET /Items/{id}/InstantMix",
 	} {
 		s.private(pattern, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, ItemsResult{Items: []Item{}}) })
 	}

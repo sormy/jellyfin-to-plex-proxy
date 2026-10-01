@@ -14,6 +14,7 @@ import (
 const plexLibraryIdentifier = "com.plexapp.plugins.library"
 
 type PlexTag struct {
+	ID  int    `json:"id"`
 	Tag string `json:"tag"`
 }
 
@@ -289,6 +290,12 @@ func (p *Plex) SetPlayed(ratingKey string, played bool) error {
 		path = "/:/scrobble"
 	}
 	return p.call(http.MethodGet, path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
+}
+
+// Genres lists a section's genres for items of one Plex type.
+func (p *Plex) Genres(section, plexType string) ([]PlexDirectory, error) {
+	c, err := p.get("/library/sections/"+section+"/genre", url.Values{"type": {plexType}}, nil)
+	return c.Directory, err
 }
 
 // AlbumTracks lists the tracks of several albums of a section in one call.
