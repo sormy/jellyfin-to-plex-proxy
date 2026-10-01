@@ -90,6 +90,7 @@ type PlexMetadata struct {
 	UserRating            float64     `json:"userRating"`
 	Composite             string      `json:"composite"`
 	PlaylistType          string      `json:"playlistType"`
+	Smart                 bool        `json:"smart"`
 	Thumb                 string      `json:"thumb"`
 	Art                   string      `json:"art"`
 	GrandparentThumb      string      `json:"grandparentThumb"`
@@ -294,8 +295,16 @@ func (p *Plex) SetPlayed(ratingKey string, played bool) error {
 	return p.call(http.MethodGet, path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
 }
 
+// Playlists lists Plex's playlists. Plex keeps a smart playlist's count in
+// the list stale, and works it out afresh when asked for that playlist.
 func (p *Plex) Playlists() ([]PlexMetadata, error) {
 	c, err := p.get("/playlists", nil, nil)
+	for i, playlist := range c.Metadata {
+		if err != nil || !playlist.Smart {
+			continue
+		}
+		c.Metadata[i], err = p.Playlist(playlist.RatingKey)
+	}
 	return c.Metadata, err
 }
 

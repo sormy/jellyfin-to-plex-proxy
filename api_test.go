@@ -28,6 +28,7 @@ const (
 	streamProbeLength = 1024
 	// Plex's transcoder takes a few seconds to cut its first segment.
 	transcoderAttempts = 15
+	maxCheckedPlaylist = 500
 )
 
 type client struct {
@@ -982,6 +983,15 @@ func TestPlaylists(t *testing.T) {
 	}
 	if c.item(playlist.Id).Name != playlist.Name {
 		t.Error("playlist lookup differs")
+	}
+	// Smart playlists included: each count matches what opening it lists.
+	for _, p := range playlists {
+		if p.ChildCount > maxCheckedPlaylist {
+			continue
+		}
+		if items := c.items("/Playlists/"+p.Id+"/Items", nil).Items; len(items) != p.ChildCount {
+			t.Errorf("%s counts %d, holds %d", p.Name, p.ChildCount, len(items))
+		}
 	}
 	if playlist.ImageTags["Primary"] != "" {
 		resp := c.do(http.MethodGet, "/Items/"+playlist.Id+"/Images/Primary", url.Values{"maxWidth": {"300"}}, nil)

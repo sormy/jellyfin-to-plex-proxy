@@ -104,7 +104,9 @@ func (p *fakePlex) seed() {
 		Duration: 2 * fakeTrackMs, Composite: "/playlists/" + fakePlaylistKey + "/composite/1"})
 	p.members[fakePlaylistKey] = []string{"403", "402"}
 	// Plexamp keeps smart playlists that stay empty until something is loved.
-	p.add(PlexMetadata{RatingKey: "501", Type: "playlist", Title: "Loved", PlaylistType: "audio"})
+	p.add(PlexMetadata{RatingKey: "501", Type: "playlist", Title: "Loved", PlaylistType: "audio", Smart: true})
+	p.add(PlexMetadata{RatingKey: "502", Type: "playlist", Title: "Recently Played", PlaylistType: "audio", Smart: true, LeafCount: 1})
+	p.members["502"] = []string{"402"}
 	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
 	p.addShow("300", "The Other Show", 1, 1)
 }
@@ -173,7 +175,13 @@ func (p *fakePlex) routes() {
 	})
 	p.mux.HandleFunc("GET /library/all", func(w http.ResponseWriter, r *http.Request) { p.list(w, r, "", nil) })
 	p.mux.HandleFunc("GET /playlists", func(w http.ResponseWriter, r *http.Request) {
-		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.Type == "playlist" })})
+		listed := p.matching(func(m *PlexMetadata) bool { return m.Type == "playlist" })
+		for i := range listed {
+			if listed[i].Smart {
+				listed[i].LeafCount = 0 // Plex's list holds a smart playlist's count stale.
+			}
+		}
+		p.write(w, PlexContainer{Metadata: listed})
 	})
 	p.mux.HandleFunc("GET /playlists/{key}", func(w http.ResponseWriter, r *http.Request) {
 		p.write(w, PlexContainer{Metadata: p.matching(func(m *PlexMetadata) bool { return m.Type == "playlist" && m.RatingKey == r.PathValue("key") })})
