@@ -96,6 +96,8 @@ certificate at start: restart the service after a renewal.
 
 ### macOS
 
+On the machine running the proxy:
+
 ```sh
 chmod +x jellyfin-to-plex-proxy-macos-*
 xattr -d com.apple.quarantine jellyfin-to-plex-proxy-macos-*
@@ -104,7 +106,7 @@ PLEX_TOKEN=<token> ./jellyfin-to-plex-proxy-macos-arm64
 
 ### Windows
 
-In PowerShell:
+In PowerShell, on the machine running the proxy:
 
 ```powershell
 $env:PLEX_TOKEN = "<token>"
@@ -154,12 +156,10 @@ Runs the scenarios against an in-memory fake Plex. With `JELLYFIN_URL=http://<ho
 `JELLYFIN_USERNAME` and `JELLYFIN_PASSWORD` if not the defaults, the same scenarios run against a
 live proxy and its Plex.
 
-> The live run changes watch state on one series, `testSeries` in `api_test.go`, and restores its
-> watched flags and resume points. Play counts, last-viewed dates and Plex's history do not come
-> back: pick a series whose history you do not care about.
-
-Finamp's transcoding is Plex's transcoder: Plex loads codecs from its data folder, which therefore
-must not sit on a `noexec` mount.
+> The live run changes, then restores: watched flags and resume points on one series
+> (`testSeries` in `api_test.go`), an episode's track choice, one unplayed song's play state, and a
+> favorite. Play counts, last-viewed dates and Plex's history do not come back: pick a series whose
+> history you do not care about.
 
 ## How it maps
 
@@ -170,11 +170,14 @@ must not sit on a `noexec` mount.
 | resume, next up                     | on deck                                               |
 | played, unplayed                    | `/:/scrobble`, `/:/unscrobble`; a song when it starts |
 | favorites                           | the top rating, 10, as Plexamp loves                  |
-| playlists, genres                   | Plex playlists, Plex genres                           |
+| audio, subtitle choice              | the file's selected streams                           |
+| playlists                           | Plex playlists                                        |
+| genres; year and rating filters     | Plex genres; its `year`, `contentRating` filters      |
+| music transcoding                   | Plex's transcoder, AAC over HLS                       |
 | playback progress                   | `/:/progress`                                         |
 | stream, image, subtitle             | the part, `/photo/:/transcode`, the stream            |
 
-A stopped position is read as Jellyfin reads it:
+A stopped video's position is read as Jellyfin reads it:
 
 | Stopped at                          | Result          |
 | ----------------------------------- | --------------- |
@@ -191,8 +194,9 @@ stream URL is valid only with the play session the proxy signed for that item.
 - One user, the Plex owner. Plex managed users are not exposed.
 - Anyone on the network who knows the user name and password gets the owner's library: change the
   defaults where the network is not yours alone.
-- Video plays as stored: the app must decode the file, as Swiftfin's default player does. Only music
-  transcodes, through Plex, to AAC.
+- Video plays as stored: the app must decode the file, as Swiftfin's default player does.
+- Only music transcodes, through Plex's transcoder, which loads codecs from Plex's data folder: that
+  folder must not sit on a `noexec` mount.
 - Movie, show and music libraries, and Plex collections: no photos or Live TV.
 - Tag and language filters and people are empty.
 
