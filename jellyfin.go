@@ -234,11 +234,14 @@ type PlaybackInfo struct {
 	PlaySessionId string        `json:"PlaySessionId"`
 }
 
+// PlaybackReport carries the playing tracks; a subtitle index of -1 means none.
 type PlaybackReport struct {
-	ItemId        string `json:"ItemId"`
-	MediaSourceId string `json:"MediaSourceId"`
-	PositionTicks int64  `json:"PositionTicks"`
-	IsPaused      bool   `json:"IsPaused"`
+	ItemId              string `json:"ItemId"`
+	MediaSourceId       string `json:"MediaSourceId"`
+	PositionTicks       int64  `json:"PositionTicks"`
+	IsPaused            bool   `json:"IsPaused"`
+	AudioStreamIndex    *int   `json:"AudioStreamIndex,omitempty"`
+	SubtitleStreamIndex *int   `json:"SubtitleStreamIndex,omitempty"`
 }
 
 type DiscoveryReply struct {

@@ -17,6 +17,7 @@ type PlexTag struct {
 }
 
 type PlexStream struct {
+	ID                   int     `json:"id"`
 	StreamType           int     `json:"streamType"`
 	Index                int     `json:"index"`
 	Key                  string  `json:"key"`
@@ -49,6 +50,7 @@ type PlexPart struct {
 type PlexMedia struct {
 	Duration        int64      `json:"duration"`
 	Bitrate         int        `json:"bitrate"`
+	Height          int        `json:"height"`
 	VideoCodec      string     `json:"videoCodec"`
 	VideoResolution string     `json:"videoResolution"`
 	Part            []PlexPart `json:"Part"`
@@ -155,8 +157,8 @@ func (p Page) header() http.Header {
 	}
 }
 
-func (p *Plex) send(path string, query url.Values, header http.Header) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, p.URL(path, query).String(), nil)
+func (p *Plex) send(method, path string, query url.Values, header http.Header) (*http.Response, error) {
+	req, err := http.NewRequest(method, p.URL(path, query).String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +178,7 @@ func (p *Plex) send(path string, query url.Values, header http.Header) (*http.Re
 }
 
 func (p *Plex) get(path string, query url.Values, header http.Header) (PlexContainer, error) {
-	resp, err := p.send(path, query, header)
+	resp, err := p.send(http.MethodGet, path, query, header)
 	if err != nil {
 		return PlexContainer{}, err
 	}
@@ -193,8 +195,8 @@ func (p *Plex) get(path string, query url.Values, header http.Header) (PlexConta
 	return c, nil
 }
 
-func (p *Plex) call(path string, query url.Values, header http.Header) error {
-	resp, err := p.send(path, query, header)
+func (p *Plex) call(method, path string, query url.Values, header http.Header) error {
+	resp, err := p.send(method, path, query, header)
 	if err != nil {
 		return err
 	}
@@ -260,7 +262,7 @@ func (p *Plex) Search(term string, limit int) ([]PlexMetadata, error) {
 // SetProgress keeps a resume point; Plex ignores zero and never marks
 // an item watched from here.
 func (p *Plex) SetProgress(ratingKey string, positionMs int64) error {
-	return p.call("/:/progress", url.Values{
+	return p.call(http.MethodGet, "/:/progress", url.Values{
 		"key":        {ratingKey},
 		"identifier": {plexLibraryIdentifier},
 		"time":       {strconv.FormatInt(positionMs, 10)},
@@ -273,7 +275,20 @@ func (p *Plex) SetPlayed(ratingKey string, played bool) error {
 	if played {
 		path = "/:/scrobble"
 	}
-	return p.call(path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
+	return p.call(http.MethodGet, path, url.Values{"key": {ratingKey}, "identifier": {plexLibraryIdentifier}}, nil)
+}
+
+// SelectStreams makes Plex remember a file's audio and subtitle choice; a
+// subtitle id of 0 means none. Nil leaves that choice as it is.
+func (p *Plex) SelectStreams(partID int, audioID, subtitleID *int) error {
+	query := url.Values{"allParts": {"1"}}
+	if audioID != nil {
+		query.Set("audioStreamID", strconv.Itoa(*audioID))
+	}
+	if subtitleID != nil {
+		query.Set("subtitleStreamID", strconv.Itoa(*subtitleID))
+	}
+	return p.call(http.MethodPut, "/library/parts/"+strconv.Itoa(partID), query, nil)
 }
 
 // withoutURL drops the request URL from a transport error: it carries the token.

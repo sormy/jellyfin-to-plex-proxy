@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -164,26 +165,36 @@ func toUserData(m PlexMetadata) *UserData {
 	return data
 }
 
+// resolutionLabels spells Plex's resolutions as players show them.
+var resolutionLabels = map[string]string{"4k": "4K", "sd": "SD", "1080": "1080p", "720": "720p", "576": "576p", "480": "480p"}
+
+// toMediaSources lists versions best first, as Plex picks at full quality,
+// and names each by its file where two would read the same.
 func toMediaSources(itemID string, m PlexMetadata) []MediaSource {
+	media := slices.Clone(m.Media)
+	slices.SortStableFunc(media, func(a, b PlexMedia) int {
+		return cmp.Or(cmp.Compare(b.Height, a.Height), cmp.Compare(b.Bitrate, a.Bitrate))
+	})
 	var sources []MediaSource
-	for _, media := range m.Media {
-		if len(media.Part) == 0 {
+	for _, version := range media {
+		if len(version.Part) == 0 {
 			continue
 		}
-		part := media.Part[0]
+		part := version.Part[0]
 		sourceID := EncodeID(KindPart, strconv.Itoa(part.ID))
 		streams, audio, subtitle := toMediaStreams(itemID, sourceID, part.Stream)
+		resolution := cmp.Or(resolutionLabels[strings.ToLower(version.VideoResolution)], version.VideoResolution)
 		sources = append(sources, MediaSource{
 			Id:                         sourceID,
 			ETag:                       sourceID,
-			Name:                       strings.TrimSpace(media.VideoResolution + " " + strings.ToUpper(media.VideoCodec)),
+			Name:                       strings.TrimSpace(resolution + " " + strings.ToUpper(version.VideoCodec)),
 			Path:                       part.File,
 			Protocol:                   "File",
 			Type:                       "Default",
 			Container:                  part.Container,
 			Size:                       part.Size,
-			Bitrate:                    media.Bitrate * bitsPerKilobit,
-			RunTimeTicks:               media.Duration * ticksPerMillisecond,
+			Bitrate:                    version.Bitrate * bitsPerKilobit,
+			RunTimeTicks:               version.Duration * ticksPerMillisecond,
 			SupportsDirectPlay:         true,
 			SupportsDirectStream:       true,
 			MediaStreams:               streams,
@@ -191,7 +202,32 @@ func toMediaSources(itemID string, m PlexMetadata) []MediaSource {
 			DefaultSubtitleStreamIndex: subtitle,
 		})
 	}
+	labels := map[string]int{}
+	for _, source := range sources {
+		labels[source.Name]++
+	}
+	for i, source := range sources {
+		if labels[source.Name] > 1 {
+			file := path.Base(source.Path)
+			sources[i].Name += " · " + strings.TrimSuffix(file, path.Ext(file))
+		}
+	}
 	return sources
+}
+
+// StreamAt finds the Plex stream behind a Jellyfin stream index.
+func StreamAt(streams []PlexStream, index int) (PlexStream, bool) {
+	for _, s := range streams {
+		if s.Key == "" && s.Index == index {
+			return s, true
+		}
+	}
+	for position, s := range ExternalSubtitles(streams) {
+		if ExternalSubtitleIndex(streams, position) == index {
+			return s, true
+		}
+	}
+	return PlexStream{}, false
 }
 
 // ExternalSubtitleIndex numbers external subtitles after every embedded
@@ -268,5 +304,22 @@ func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaS
 	for position, s := range ExternalSubtitles(plexStreams) {
 		add(s, ExternalSubtitleIndex(plexStreams, position))
 	}
+	numberDuplicateTitles(streams)
 	return streams, audio, subtitle
+}
+
+// numberDuplicateTitles tells apart tracks that would read the same in a picker.
+func numberDuplicateTitles(streams []MediaStream) {
+	seen := map[string]int{}
+	for _, s := range streams {
+		seen[s.Type+s.DisplayTitle]++
+	}
+	occurrence := map[string]int{}
+	for i, s := range streams {
+		key := s.Type + s.DisplayTitle
+		if seen[key] > 1 {
+			occurrence[key]++
+			streams[i].DisplayTitle = fmt.Sprintf("%s #%d", s.DisplayTitle, occurrence[key])
+		}
+	}
 }

@@ -17,6 +17,13 @@ const (
 	searchLimit        = 50
 )
 
+// Plex's stream types, and its id for no subtitle.
+const (
+	plexAudio    = 2
+	plexSubtitle = 3
+	noSubtitle   = 0
+)
+
 // Jellyfin's defaults for what a stopped position means.
 const (
 	minResumeFraction   = 0.05
@@ -554,12 +561,43 @@ func (s *Server) reportPlayback(stopped bool) http.HandlerFunc {
 			// Plex drops a resume point only by unscrobbling; harmless when unwatched.
 			err = s.plex.SetPlayed(m.RatingKey, false)
 		}
+		if err == nil {
+			err = s.rememberTracks(m, report)
+		}
 		if err != nil {
 			fail(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// rememberTracks saves the tracks a report names on the file, as Plex apps
+// do, when they differ from Plex's choice.
+func (s *Server) rememberTracks(m PlexMetadata, report PlaybackReport) error {
+	part, ok := findPart(m, report.MediaSourceId)
+	if !ok {
+		return nil
+	}
+	var audioID, subtitleID *int
+	if report.AudioStreamIndex != nil {
+		if stream, ok := StreamAt(part.Stream, *report.AudioStreamIndex); ok && stream.StreamType == plexAudio && !stream.Selected {
+			audioID = &stream.ID
+		}
+	}
+	if index := report.SubtitleStreamIndex; index != nil {
+		stream, ok := StreamAt(part.Stream, *index)
+		switch {
+		case *index < 0 && slices.ContainsFunc(part.Stream, func(s PlexStream) bool { return s.StreamType == plexSubtitle && s.Selected }):
+			subtitleID = intPointer(noSubtitle)
+		case ok && stream.StreamType == plexSubtitle && !stream.Selected:
+			subtitleID = &stream.ID
+		}
+	}
+	if audioID == nil && subtitleID == nil {
+		return nil
+	}
+	return s.plex.SelectStreams(part.ID, audioID, subtitleID)
 }
 
 func (s *Server) markPlayed(played bool) http.HandlerFunc {

@@ -29,6 +29,7 @@ const (
 	fakeSubtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nhello\n"
 	fakeMaxImageSide    = 16384
 	fakeTrailerMs       = 106_000
+	fakeBitrate         = 4000
 )
 
 // fakePlex is an in-memory Plex Media Server: the subset of its API the
@@ -62,15 +63,16 @@ func (p *fakePlex) add(m PlexMetadata) {
 	p.order = append(p.order, m.RatingKey)
 }
 
-func fakeMedia(partID int, durationMs int64) []PlexMedia {
-	return []PlexMedia{{Duration: durationMs, Bitrate: 4000, VideoCodec: "hevc", VideoResolution: "1080", Part: []PlexPart{{
+func fakeMedia(partID int, durationMs int64, bitrate int) []PlexMedia {
+	return []PlexMedia{{Duration: durationMs, Bitrate: bitrate, Height: 1080, VideoCodec: "hevc", VideoResolution: "1080", Part: []PlexPart{{
 		ID: partID, Key: fmt.Sprintf("/library/parts/%d/1/file.mkv", partID), Size: fakePartFileSize,
-		File:      fmt.Sprintf("/media/%d.mkv", partID),
-		Container: "mkv", Duration: durationMs,
+		File: fmt.Sprintf("/media/%d.mkv", partID), Container: "mkv", Duration: durationMs,
 		Stream: []PlexStream{
-			{StreamType: 1, Index: 0, Codec: "hevc", Width: 1920, Height: 1080},
-			{StreamType: 2, Index: 1, Codec: "aac", LanguageCode: "eng", Channels: 2, Selected: true},
-			{StreamType: 3, Key: fmt.Sprintf("/library/streams/%d", partID), Codec: "srt", LanguageCode: "eng"},
+			{ID: partID*10 + 1, StreamType: 1, Index: 0, Codec: "hevc", Width: 1920, Height: 1080},
+			{ID: partID*10 + 2, StreamType: 2, Index: 1, Codec: "aac", LanguageCode: "eng", Channels: 2, Selected: true},
+			{ID: partID*10 + 3, StreamType: 2, Index: 2, Codec: "ac3", LanguageCode: "rus", Channels: 6},
+			{ID: partID*10 + 4, StreamType: 3, Index: 3, Codec: "pgs", LanguageCode: "eng"},
+			{ID: partID*10 + 5, StreamType: 3, Key: fmt.Sprintf("/library/streams/%d", partID), Codec: "srt", LanguageCode: "eng"},
 		},
 	}}}}
 }
@@ -79,11 +81,11 @@ func (p *fakePlex) seed() {
 	for i := 1; i <= fakeMovieCount; i++ {
 		key := strconv.Itoa(100 + i)
 		p.add(PlexMetadata{RatingKey: key, Type: "movie", Title: fmt.Sprintf("Movie %d", i), Year: 2000 + i,
-			Duration: fakeMovieMs, Media: fakeMedia(100+i, fakeMovieMs)})
+			Duration: fakeMovieMs, Media: fakeMedia(100+i, fakeMovieMs, fakeBitrate)})
 	}
 	// Plex merges versions of one title, as a trailer filed beside the movie.
 	first := p.items["101"]
-	first.Media = append(fakeMedia(1001, fakeTrailerMs), first.Media...)
+	first.Media = append(fakeMedia(1001, fakeTrailerMs, fakeBitrate/2), first.Media...)
 	p.addShow(fakeSeriesKey, "We Bare Bears", 2, 3)
 	p.addShow("300", "The Other Show", 1, 1)
 }
@@ -100,7 +102,7 @@ func (p *fakePlex) addShow(key, title string, seasons, episodes int) {
 			p.add(PlexMetadata{RatingKey: strconv.Itoa(rk), Type: "episode", Title: fmt.Sprintf("Episode %d", e),
 				Index: e, ParentIndex: s, ParentRatingKey: season, ParentTitle: fmt.Sprintf("Season %d", s),
 				GrandparentRatingKey: key, GrandparentTitle: title, Duration: fakeEpisodeMs,
-				Media: fakeMedia(rk, fakeEpisodeMs)})
+				Media: fakeMedia(rk, fakeEpisodeMs, fakeBitrate)})
 		}
 	}
 }
@@ -200,6 +202,20 @@ func (p *fakePlex) routes() {
 	})
 	p.mux.HandleFunc("GET /library/parts/{id}/{stamp}/{file}", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, r.PathValue("file"), time.Unix(p.clock, 0), bytes.NewReader(make([]byte, fakePartFileSize)))
+	})
+	p.mux.HandleFunc("PUT /library/parts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.Atoi(r.PathValue("id"))
+		q := r.URL.Query()
+		for _, m := range p.items {
+			for i := range m.Media {
+				for j := range m.Media[i].Part {
+					if part := &m.Media[i].Part[j]; part.ID == id {
+						selectStream(part.Stream, plexAudio, q.Get("audioStreamID"))
+						selectStream(part.Stream, plexSubtitle, q.Get("subtitleStreamID"))
+					}
+				}
+			}
+		}
 	})
 	p.mux.HandleFunc("GET /library/streams/{id}", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(fakeSubtitleContent))
@@ -343,4 +359,16 @@ func (p *fakePlex) newestLeaf(key string) int64 {
 		newest = max(newest, m.AddedAt)
 	}
 	return newest
+}
+
+// selectStream marks one stream of a kind selected, as Plex does; "0" selects none.
+func selectStream(streams []PlexStream, kind int, id string) {
+	if id == "" {
+		return
+	}
+	for i := range streams {
+		if streams[i].StreamType == kind {
+			streams[i].Selected = strconv.Itoa(streams[i].ID) == id
+		}
+	}
 }

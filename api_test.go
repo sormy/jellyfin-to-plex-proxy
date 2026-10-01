@@ -685,6 +685,70 @@ func TestHomeRowsAndUserRoutes(t *testing.T) {
 	}
 }
 
+// TestTrackSelection switches tracks as an app reports them, and expects Plex
+// to remember the choice for the file, as Plex apps make it.
+func TestTrackSelection(t *testing.T) {
+	c := newClient(t)
+	var episode Item
+	var source MediaSource
+	for _, e := range c.episodes(c.series()) {
+		if full := c.item(e.Id); len(full.MediaSources) > 0 && countTracks(full.MediaSources[0], "Audio") > 1 && countTracks(full.MediaSources[0], "Subtitle") > 0 {
+			episode, source = full, full.MediaSources[0]
+			break
+		}
+	}
+	if episode.Id == "" {
+		t.Skip("no episode with two audio tracks and a subtitle")
+	}
+	report := func(audio, subtitle int) MediaSource {
+		c.expect(http.MethodPost, "/Sessions/Playing/Progress", nil, PlaybackReport{
+			ItemId: episode.Id, MediaSourceId: source.Id, AudioStreamIndex: &audio, SubtitleStreamIndex: &subtitle,
+		}, http.StatusNoContent, nil)
+		for _, s := range c.item(episode.Id).MediaSources {
+			if s.Id == source.Id {
+				return s
+			}
+		}
+		t.Fatalf("source %s vanished", source.Id)
+		return MediaSource{}
+	}
+	originalAudio := *source.DefaultAudioStreamIndex
+	originalSubtitle := -1
+	if source.DefaultSubtitleStreamIndex != nil {
+		originalSubtitle = *source.DefaultSubtitleStreamIndex
+	}
+	t.Cleanup(func() { report(originalAudio, originalSubtitle) })
+
+	audio := trackOtherThan(source, "Audio", originalAudio)
+	subtitle := trackOtherThan(source, "Subtitle", originalSubtitle)
+	got := report(audio, subtitle)
+	if *got.DefaultAudioStreamIndex != audio || got.DefaultSubtitleStreamIndex == nil || *got.DefaultSubtitleStreamIndex != subtitle {
+		t.Errorf("after choosing audio %d, subtitle %d: %v, %v", audio, subtitle, got.DefaultAudioStreamIndex, got.DefaultSubtitleStreamIndex)
+	}
+	if got = report(audio, -1); got.DefaultSubtitleStreamIndex != nil {
+		t.Errorf("subtitles off kept %d", *got.DefaultSubtitleStreamIndex)
+	}
+}
+
+func countTracks(source MediaSource, kind string) int {
+	n := 0
+	for _, s := range source.MediaStreams {
+		if s.Type == kind {
+			n++
+		}
+	}
+	return n
+}
+
+func trackOtherThan(source MediaSource, kind string, index int) int {
+	for _, s := range source.MediaStreams {
+		if s.Type == kind && s.Index != index {
+			return s.Index
+		}
+	}
+	return index
+}
+
 func TestMediaVersions(t *testing.T) {
 	c := newClient(t)
 	candidates := c.episodes(c.series())

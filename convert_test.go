@@ -1,6 +1,8 @@
 package main
 
 import (
+	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -139,5 +141,42 @@ func TestDatedEpisodes(t *testing.T) {
 		if !sameIndex || item.PremiereDate != tc.premiere || *item.ParentIndexNumber != tc.season {
 			t.Errorf("%s: index %v, premiere %q", tc.name, item.IndexNumber, item.PremiereDate)
 		}
+	}
+}
+
+func TestVersionsBestFirstAndNamed(t *testing.T) {
+	version := func(id, height, bitrate int, file string) PlexMedia {
+		return PlexMedia{Height: height, Bitrate: bitrate, VideoResolution: strconv.Itoa(height), VideoCodec: "h264",
+			Part: []PlexPart{{ID: id, File: "/media/" + file}}}
+	}
+	item, _ := ToItem("s", PlexMetadata{RatingKey: "1", Type: "movie", Media: []PlexMedia{
+		version(1, 1080, 2500, "Short.mkv"),
+		version(2, 720, 9000, "Small.mkv"),
+		version(3, 1080, 6500, "Episode.mkv"),
+	}})
+	var names []string
+	for _, s := range item.MediaSources {
+		names = append(names, s.Name)
+	}
+	want := []string{"1080p H264 · Episode", "1080p H264 · Short", "720p H264"}
+	if !slices.Equal(names, want) {
+		t.Errorf("got %v, want %v", names, want)
+	}
+}
+
+func TestDuplicateTrackTitlesNumbered(t *testing.T) {
+	item, _ := ToItem("s", PlexMetadata{RatingKey: "1", Type: "movie", Media: []PlexMedia{{Part: []PlexPart{{ID: 1, Stream: []PlexStream{
+		{StreamType: 2, Index: 1, ExtendedDisplayTitle: "Surround 5.1 (Русский DTS)"},
+		{StreamType: 2, Index: 2, ExtendedDisplayTitle: "Surround 5.1 (Русский DTS)"},
+		{StreamType: 2, Index: 3, ExtendedDisplayTitle: "Stereo (English AAC)"},
+		{StreamType: 3, Index: 4, ExtendedDisplayTitle: "Surround 5.1 (Русский DTS)"},
+	}}}}}})
+	var titles []string
+	for _, s := range item.MediaStreams {
+		titles = append(titles, s.DisplayTitle)
+	}
+	want := []string{"Surround 5.1 (Русский DTS) #1", "Surround 5.1 (Русский DTS) #2", "Stereo (English AAC)", "Surround 5.1 (Русский DTS)"}
+	if !slices.Equal(titles, want) {
+		t.Errorf("got %v, want %v", titles, want)
 	}
 }
