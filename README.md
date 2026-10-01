@@ -175,6 +175,7 @@ live proxy and its Plex.
 | audio, subtitle choice              | the file's selected streams                           |
 | playlists                           | Plex playlists                                        |
 | genres; year and rating filters     | Plex genres; its `year`, `contentRating` filters      |
+| language, first-letter filters      | `audioLanguage`, `subtitleLanguage`, `firstCharacter` |
 | music transcoding                   | Plex's transcoder, AAC over HLS                       |
 | playback progress                   | `/:/progress`                                         |
 | stream, image, subtitle             | the part, `/photo/:/transcode`, the stream            |
@@ -201,7 +202,7 @@ stream URL is valid only with the play session the proxy signed for that item.
 - Only music transcodes, through Plex's transcoder, which loads codecs from Plex's data folder: that
   folder must not sit on a `noexec` mount.
 - Movie, show and music libraries, and Plex collections: no photos or Live TV.
-- Tag and language filters and people are empty.
+- Tag filters and people are empty.
 
 ## License
 
