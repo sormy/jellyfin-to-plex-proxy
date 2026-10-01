@@ -2,12 +2,15 @@
 Description=Jellyfin API over Plex
 After=network-online.target plexmediaserver.service
 Wants=network-online.target
+# Plex may come up long after this, as when its disk arrives late: keep trying.
+StartLimitIntervalSec=0
 
 [Service]
 EnvironmentFile=/etc/jellyfin-to-plex-proxy.env
 ExecStart=/usr/local/bin/jellyfin-to-plex-proxy
 DynamicUser=yes
 Restart=on-failure
+RestartSec=10s
 
 [Install]
 WantedBy=multi-user.target
