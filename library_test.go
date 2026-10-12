@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -102,4 +103,21 @@ func TestSortMergedRandomShuffles(t *testing.T) {
 		}
 	}
 	t.Errorf("random merge came out in title order %d times in a row", runs)
+}
+
+func TestPlexURLLeavesSharedQueriesUntouched(t *testing.T) {
+	plex := NewPlex(&url.URL{Scheme: "http", Host: "plex"}, "secret")
+	shared := plexLatest["movie"]
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			plex.URL("/library/sections/1/all", shared)
+		}()
+	}
+	wg.Wait()
+	if shared.Has("X-Plex-Token") {
+		t.Fatalf("URL wrote the token into the caller's query: %v", shared)
+	}
 }

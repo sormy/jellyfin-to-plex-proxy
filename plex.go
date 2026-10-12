@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -154,6 +155,7 @@ func NewPlex(base *url.URL, token string) *Plex {
 func (p *Plex) URL(path string, query url.Values) *url.URL {
 	u := p.base.JoinPath()
 	u.Path = path
+	query = maps.Clone(query)
 	if query == nil {
 		query = url.Values{}
 	}
