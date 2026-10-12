@@ -529,7 +529,10 @@ func TestPlayback(t *testing.T) {
 		t.Fatalf("playback info %+v", info)
 	}
 	source := info.MediaSources[0]
-	streamPath := "/Videos/" + episode.Id + "/stream"
+	if source.Id != episode.Id {
+		t.Errorf("default source %s, want the item's id %s: JellyCon streams /Videos/{MediaSourceId}", source.Id, episode.Id)
+	}
+	streamPath := "/Videos/" + source.Id + "/stream"
 	bare := &client{t: t, base: c.base}
 	for _, tc := range []struct {
 		name    string

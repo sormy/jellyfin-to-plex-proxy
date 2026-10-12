@@ -225,20 +225,25 @@ func toUserData(m PlexMetadata) *UserData {
 // resolutionLabels spells Plex's resolutions as players show them.
 var resolutionLabels = map[string]string{"4k": "4K", "sd": "SD", "1080": "1080p", "720": "720p", "576": "576p", "480": "480p"}
 
-// toMediaSources lists versions best first, as Plex picks at full quality,
-// and names each by its file where two would read the same.
-func toMediaSources(itemID string, m PlexMetadata) []MediaSource {
-	media := slices.Clone(m.Media)
+// versions lists the playable versions best first, as Plex picks at full quality.
+func versions(m PlexMetadata) []PlexMedia {
+	media := slices.DeleteFunc(slices.Clone(m.Media), func(v PlexMedia) bool { return len(v.Part) == 0 })
 	slices.SortStableFunc(media, func(a, b PlexMedia) int {
 		return cmp.Or(cmp.Compare(b.Height, a.Height), cmp.Compare(b.Bitrate, a.Bitrate))
 	})
+	return media
+}
+
+// toMediaSources names each version by its file where two would read the
+// same; the best one takes the item's id, as Jellyfin's default source does.
+func toMediaSources(itemID string, m PlexMetadata) []MediaSource {
 	var sources []MediaSource
-	for _, version := range media {
-		if len(version.Part) == 0 {
-			continue
-		}
+	for i, version := range versions(m) {
 		part := version.Part[0]
 		sourceID := EncodeID(KindPart, strconv.Itoa(part.ID))
+		if i == 0 {
+			sourceID = itemID
+		}
 		streams, audio, subtitle := toMediaStreams(itemID, sourceID, part.Stream)
 		resolution := cmp.Or(resolutionLabels[strings.ToLower(version.VideoResolution)], version.VideoResolution)
 		sources = append(sources, MediaSource{

@@ -104,9 +104,12 @@ func (s *Server) part(itemID, sourceID string) (PlexPart, error) {
 }
 
 func findPart(m PlexMetadata, sourceID string) (PlexPart, bool) {
+	if best := versions(m); len(best) > 0 && (sourceID == "" || sourceID == EncodeID(KindItem, m.RatingKey)) {
+		return best[0].Part[0], true
+	}
 	for _, media := range m.Media {
 		for _, part := range media.Part {
-			if sourceID == "" || EncodeID(KindPart, strconv.Itoa(part.ID)) == sourceID {
+			if EncodeID(KindPart, strconv.Itoa(part.ID)) == sourceID {
 				return part, true
 			}
 		}
