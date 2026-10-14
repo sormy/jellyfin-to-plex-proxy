@@ -11,13 +11,19 @@ talks to Plex over its HTTP API.
 
 From [Releases](https://github.com/sormy/jellyfin-to-plex-proxy/releases/latest):
 
-| Platform     | File                                       | Oldest OS     |
-| ------------ | ------------------------------------------ | ------------- |
-| Linux x86-64 | `jellyfin-to-plex-proxy-linux-amd64`       | kernel 2.6.32 |
-| Linux ARM64  | `jellyfin-to-plex-proxy-linux-arm64`       | kernel 2.6.32 |
-| macOS Intel  | `jellyfin-to-plex-proxy-macos-amd64`       | 10.15         |
-| macOS Apple  | `jellyfin-to-plex-proxy-macos-arm64`       | 11            |
-| Windows x64  | `jellyfin-to-plex-proxy-windows-amd64.exe` | 10            |
+| Platform     | File                                              | Oldest OS     |
+| ------------ | ------------------------------------------------- | ------------- |
+| Linux x86-64 | `jellyfin-to-plex-proxy-linux-amd64`              | kernel 2.6.32 |
+| Linux ARM64  | `jellyfin-to-plex-proxy-linux-arm64`              | kernel 2.6.32 |
+| macOS Intel  | `jellyfin-to-plex-proxy-macos-amd64`              | 10.15         |
+| macOS Apple  | `jellyfin-to-plex-proxy-macos-arm64`              | 11            |
+| Windows x64  | `jellyfin-to-plex-proxy-windows-amd64.exe`        | 10            |
+| Windows x64  | `jellyfin-to-plex-proxy-windows-legacy-amd64.exe` | 7             |
+| Windows x86  | `jellyfin-to-plex-proxy-windows-legacy-386.exe`   | 7             |
+
+The legacy builds are for Windows 7 to 8.1; the plain Windows build crashes there at launch. They
+are built with [go-legacy-win7](https://github.com/thongtech/go-legacy-win7), a fork of Go that
+keeps those systems working.
 
 ## Configure
 
@@ -146,7 +152,9 @@ Other Jellyfin apps may call endpoints the proxy lacks: they log as `404` in the
 
 Vets, tests, and writes every release binary plus `SHA256SUMS` to `dist/`. It builds with Go
 1.22 — the newest release that still targets macOS 10.15 and Windows 10 — which the `go` command
-downloads on first run. Go 1.22 no longer receives security fixes.
+downloads on first run. Go 1.22 no longer receives security fixes. The legacy Windows builds use
+go-legacy-win7, which the script downloads into `build/` and checks against its published
+checksum.
 
 ## Test
 
