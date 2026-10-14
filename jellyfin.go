@@ -90,6 +90,21 @@ type MediaStream struct {
 	AverageFrameRate     float64 `json:"AverageFrameRate,omitempty"`
 	SampleRate           int     `json:"SampleRate,omitempty"`
 	BitDepth             int     `json:"BitDepth,omitempty"`
+	ChannelLayout        string  `json:"ChannelLayout,omitempty"`
+	VideoRange           string  `json:"VideoRange,omitempty"`
+	VideoRangeType       string  `json:"VideoRangeType,omitempty"`
+	ColorPrimaries       string  `json:"ColorPrimaries,omitempty"`
+	ColorSpace           string  `json:"ColorSpace,omitempty"`
+	ColorTransfer        string  `json:"ColorTransfer,omitempty"`
+	// Dolby Vision's configuration record; 0 is a meaningful value for each.
+	DvVersionMajor            *int `json:"DvVersionMajor,omitempty"`
+	DvVersionMinor            *int `json:"DvVersionMinor,omitempty"`
+	DvProfile                 *int `json:"DvProfile,omitempty"`
+	DvLevel                   *int `json:"DvLevel,omitempty"`
+	DvBlSignalCompatibilityId *int `json:"DvBlSignalCompatibilityId,omitempty"`
+	RpuPresentFlag            *int `json:"RpuPresentFlag,omitempty"`
+	ElPresentFlag             *int `json:"ElPresentFlag,omitempty"`
+	BlPresentFlag             *int `json:"BlPresentFlag,omitempty"`
 	// Finamp requires these.
 	IsInterlaced           bool `json:"IsInterlaced"`
 	SupportsExternalStream bool `json:"SupportsExternalStream"`

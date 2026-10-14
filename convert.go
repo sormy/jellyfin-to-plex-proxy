@@ -342,6 +342,12 @@ func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaS
 			AverageFrameRate: s.FrameRate,
 			SampleRate:       s.SamplingRate,
 			BitDepth:         s.BitDepth,
+			ChannelLayout:    s.AudioChannelLayout,
+		}
+		if kind == "Video" {
+			stream.VideoRange, stream.VideoRangeType = VideoRange(s)
+			stream.ColorPrimaries, stream.ColorSpace, stream.ColorTransfer = s.ColorPrimaries, s.ColorSpace, s.ColorTrc
+			setDolbyVision(&stream, s)
 		}
 		if s.ExtendedDisplayTitle != "" {
 			stream.DisplayTitle = s.ExtendedDisplayTitle

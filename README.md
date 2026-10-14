@@ -165,20 +165,21 @@ live proxy and its Plex.
 
 ## How it maps
 
-| Jellyfin                            | Plex                                                  |
-| ----------------------------------- | ----------------------------------------------------- |
-| libraries                           | movie, show and music sections, and collections       |
-| `Movie` `Series` `Season` `Episode` | `movie` `show` `season` `episode`                     |
-| resume, next up                     | on deck                                               |
-| played, unplayed                    | `/:/scrobble`, `/:/unscrobble`; a song when it starts |
-| favorites                           | the top rating, 10, as Plexamp loves                  |
-| audio, subtitle choice              | the file's selected streams                           |
-| playlists                           | Plex playlists                                        |
-| genres; year and rating filters     | Plex genres; its `year`, `contentRating` filters      |
-| language, first-letter filters      | `audioLanguage`, `subtitleLanguage`, `firstCharacter` |
-| music transcoding                   | Plex's transcoder, AAC over HLS                       |
-| playback progress                   | `/:/progress`                                         |
-| stream, image, subtitle             | the part, `/photo/:/transcode`, the stream            |
+| Jellyfin                            | Plex                                                   |
+| ----------------------------------- | ------------------------------------------------------ |
+| libraries                           | movie, show and music sections, and collections        |
+| `Movie` `Series` `Season` `Episode` | `movie` `show` `season` `episode`                      |
+| resume, next up                     | on deck                                                |
+| played, unplayed                    | `/:/scrobble`, `/:/unscrobble`; a song when it starts  |
+| favorites                           | the top rating, 10, as Plexamp loves                   |
+| audio, subtitle choice              | the file's selected streams                            |
+| playlists                           | Plex playlists                                         |
+| genres; year and rating filters     | Plex genres; its `year`, `contentRating` filters       |
+| language, first-letter filters      | `audioLanguage`, `subtitleLanguage`, `firstCharacter`  |
+| HDR, Dolby Vision, channel layout   | the stream's `colorTrc`, `DOVI*`, `audioChannelLayout` |
+| music transcoding                   | Plex's transcoder, AAC over HLS                        |
+| playback progress                   | `/:/progress`                                          |
+| stream, image, subtitle             | the part, `/photo/:/transcode`, the stream             |
 
 A stopped video's position is read as Jellyfin reads it:
 

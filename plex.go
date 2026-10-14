@@ -40,6 +40,18 @@ type PlexStream struct {
 	FrameRate            float64 `json:"frameRate"`
 	SamplingRate         int     `json:"samplingRate"`
 	BitDepth             int     `json:"bitDepth"`
+	ColorPrimaries       string  `json:"colorPrimaries"`
+	ColorSpace           string  `json:"colorSpace"`
+	ColorTrc             string  `json:"colorTrc"`
+	AudioChannelLayout   string  `json:"audioChannelLayout"`
+	DOVIPresent          bool    `json:"DOVIPresent"`
+	DOVIVersion          string  `json:"DOVIVersion"`
+	DOVIProfile          int     `json:"DOVIProfile"`
+	DOVILevel            int     `json:"DOVILevel"`
+	DOVIBLCompatID       int     `json:"DOVIBLCompatID"`
+	DOVIRPUPresent       bool    `json:"DOVIRPUPresent"`
+	DOVIELPresent        bool    `json:"DOVIELPresent"`
+	DOVIBLPresent        bool    `json:"DOVIBLPresent"`
 }
 
 type PlexPart struct {
