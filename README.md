@@ -181,13 +181,15 @@ live proxy and its Plex.
 | played, unplayed                    | `/:/scrobble`, `/:/unscrobble`; a song when it starts  |
 | favorites                           | the top rating, 10, as Plexamp loves                   |
 | audio, subtitle choice              | the file's selected streams                            |
-| playlists                           | Plex playlists                                         |
+| playlists, and editing them         | Plex playlists; smart ones read only                   |
 | genres; year and rating filters     | Plex genres; its `year`, `contentRating` filters       |
 | language, first-letter filters      | `audioLanguage`, `subtitleLanguage`, `firstCharacter`  |
 | HDR, Dolby Vision, channel layout   | the stream's `colorTrc`, `DOVI*`, `audioChannelLayout` |
 | music transcoding                   | Plex's transcoder, AAC over HLS                        |
+| lyrics                              | the track's lyric stream, timed from LRC               |
 | playback progress                   | `/:/progress`                                          |
 | stream, image, subtitle             | the part, `/photo/:/transcode`, the stream             |
+| session socket                      | kept alive, so apps stop reconnecting                  |
 
 A stopped video's position is read as Jellyfin reads it:
 
@@ -199,7 +201,8 @@ A stopped video's position is read as Jellyfin reads it:
 | anywhere else                       | resume point    |
 
 The Plex token never leaves the proxy: streams, images and subtitles are proxied, not redirected. A
-stream URL is valid only with the play session the proxy signed for that item.
+stream URL is valid only with the play session the proxy signed for that item. The journal masks
+tokens and play sessions.
 
 ## Limits
 
@@ -212,6 +215,9 @@ stream URL is valid only with the play session the proxy signed for that item.
   folder must not sit on a `noexec` mount.
 - Movie, show and music libraries, and Plex collections: no photos or Live TV.
 - Tag filters and people are empty.
+- The session socket only keeps alive: no remote control, Play On or live library updates.
+- Plex holds a track once per playlist and keeps no empty playlist: adding a track again does
+  nothing, and a new playlist needs its first item.
 
 ## License
 
