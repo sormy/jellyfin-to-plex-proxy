@@ -2,7 +2,9 @@ package main
 
 import (
 	"cmp"
+	"encoding/json"
 	"net/url"
+	"reflect"
 	"slices"
 	"strconv"
 	"sync"
@@ -119,5 +121,30 @@ func TestPlexURLLeavesSharedQueriesUntouched(t *testing.T) {
 	wg.Wait()
 	if shared.Has("X-Plex-Token") {
 		t.Fatalf("URL wrote the token into the caller's query: %v", shared)
+	}
+}
+
+func TestParseLyrics(t *testing.T) {
+	start := func(ms int64) *int64 { ticks := ms * ticksPerMillisecond; return &ticks }
+	for _, tc := range []struct {
+		name, text string
+		want       Lyrics
+	}{
+		{"synced, repeated and tagged", "[ar:Band]\r\n[00:03.00][00:10.00]Chorus\r\n[00:01.50] First line \r\n[00:12]\r\n", Lyrics{
+			Metadata: LyricMetadata{IsSynced: true},
+			Lyrics: []LyricLine{
+				{Text: "First line", Start: start(1500)}, {Text: "Chorus", Start: start(3000)},
+				{Text: "Chorus", Start: start(10000)}, {Text: "", Start: start(12000)},
+			},
+		}},
+		{"plain", "First line\n\nSecond line\n", Lyrics{Lyrics: []LyricLine{{Text: "First line"}, {Text: ""}, {Text: "Second line"}}}},
+		{"bracketed words stay plain", "[Chorus]\nla la", Lyrics{Lyrics: []LyricLine{{Text: "[Chorus]"}, {Text: "la la"}}}},
+	} {
+		got := parseLyrics(tc.text)
+		if !reflect.DeepEqual(got, tc.want) {
+			gotJSON, _ := json.Marshal(got)
+			wantJSON, _ := json.Marshal(tc.want)
+			t.Errorf("%s:\n got %s\nwant %s", tc.name, gotJSON, wantJSON)
+		}
 	}
 }

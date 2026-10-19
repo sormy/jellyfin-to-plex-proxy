@@ -28,7 +28,7 @@ var itemTypes = map[string]string{
 	"playlist":   "Playlist",
 }
 
-var streamTypes = map[int]string{1: "Video", 2: "Audio", 3: "Subtitle"}
+var streamTypes = map[int]string{1: "Video", 2: "Audio", 3: "Subtitle", lyricStreamType: "Lyric"}
 
 var textSubtitleCodecs = map[string]bool{
 	"srt": true, "subrip": true, "ass": true, "ssa": true, "vtt": true, "webvtt": true, "mov_text": true,
@@ -361,6 +361,9 @@ func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaS
 				stream.DeliveryUrl = fmt.Sprintf("/Videos/%s/%s/Subtitles/%d/0/Stream.%s", itemID, sourceID, index, s.Codec)
 			}
 		}
+		if kind == "Lyric" {
+			stream.IsExternal = true
+		}
 		if s.Selected && kind == "Audio" {
 			audio = intPointer(index)
 		}
@@ -374,8 +377,13 @@ func toMediaStreams(itemID, sourceID string, plexStreams []PlexStream) ([]MediaS
 			add(s, s.Index)
 		}
 	}
-	for position, s := range ExternalSubtitles(plexStreams) {
+	externals := ExternalSubtitles(plexStreams)
+	for position, s := range externals {
 		add(s, ExternalSubtitleIndex(plexStreams, position))
+	}
+	// Finamp offers lyrics only for a track with a Lyric stream.
+	if lyric, ok := lyricStream(plexStreams); ok {
+		add(lyric, ExternalSubtitleIndex(plexStreams, len(externals)))
 	}
 	numberDuplicateTitles(streams)
 	return streams, audio, subtitle

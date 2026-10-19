@@ -29,6 +29,9 @@ const (
 	fakePlaylistKey     = "500"
 	fakePartFileSize    = 4096
 	fakeSubtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nhello\n"
+	fakeLyricsTrackKey  = 402
+	fakeLyricsStreamID  = 4021
+	fakeLyricsContent   = "[ar:Fake Band]\n[00:03.00][00:10.00]Chorus\n[00:01.50]First line\n"
 	fakeMaxImageSide    = 16384
 	fakeTrailerMs       = 106_000
 	fakeBitrate         = 4000
@@ -133,7 +136,7 @@ func (p *fakePlex) addMusic() {
 			Media: []PlexMedia{{Duration: fakeTrackMs, Bitrate: 320, Container: "ogg", Part: []PlexPart{{
 				ID: key, Key: fmt.Sprintf("/library/parts/%d/1/file.ogg", key), File: fmt.Sprintf("/media/%d.ogg", key),
 				Container: "ogg", Size: fakePartFileSize, Duration: fakeTrackMs,
-				Stream: []PlexStream{{ID: key * 10, StreamType: 2, Index: 0, Codec: "vorbis", Channels: 2, SamplingRate: 44100, Selected: true}},
+				Stream: fakeTrackStreams(key),
 			}}}}})
 	}
 }
@@ -362,6 +365,10 @@ func (p *fakePlex) routes() {
 		}
 	})
 	p.mux.HandleFunc("GET /library/streams/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") == strconv.Itoa(fakeLyricsStreamID) {
+			w.Write([]byte(fakeLyricsContent))
+			return
+		}
 		w.Write([]byte(fakeSubtitleContent))
 	})
 }
@@ -568,4 +575,13 @@ func (p *fakePlex) hasLanguage(m *PlexMetadata, kind int, languages string) bool
 	return slices.ContainsFunc(p.streamsOf(m), func(s PlexStream) bool {
 		return s.StreamType == kind && slices.Contains(strings.Split(languages, ","), s.LanguageCode)
 	})
+}
+
+// fakeTrackStreams gives the first fake track sidecar lyrics.
+func fakeTrackStreams(key int) []PlexStream {
+	streams := []PlexStream{{ID: key * 10, StreamType: 2, Index: 0, Codec: "vorbis", Channels: 2, SamplingRate: 44100, Selected: true}}
+	if key == fakeLyricsTrackKey {
+		streams = append(streams, PlexStream{ID: fakeLyricsStreamID, StreamType: lyricStreamType, Key: fmt.Sprintf("/library/streams/%d", fakeLyricsStreamID), Codec: "lrc"})
+	}
+	return streams
 }

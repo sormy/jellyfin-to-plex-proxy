@@ -883,7 +883,7 @@ func TestMusic(t *testing.T) {
 		{"/Audio/" + track.Id + "/universal", url.Values{"api_key": {c.token}}, http.StatusPartialContent},
 		{"/Audio/" + track.Id + "/universal", url.Values{"api_key": {c.token}, "Container": {"mp3,OGG|vorbis"}}, http.StatusPartialContent},
 		{"/Audio/" + track.Id + "/stream", url.Values{"static": {"true"}}, http.StatusUnauthorized},
-		{"/Audio/" + track.Id + "/lyrics", url.Values{"api_key": {c.token}}, http.StatusNotFound},
+		{"/Audio/" + track.Id + "/master.m3u8", url.Values{"api_key": {c.token}}, http.StatusNotFound},
 	} {
 		req, _ := http.NewRequest(http.MethodGet, c.base+tc.path+"?"+tc.query.Encode(), nil)
 		req.Header.Set("Range", "bytes=0-15")
@@ -895,6 +895,19 @@ func TestMusic(t *testing.T) {
 		if resp.StatusCode != tc.want ||
 			tc.want == http.StatusPartialContent && !strings.HasPrefix(resp.Header.Get("Content-Type"), "audio/") {
 			t.Errorf("%s?%s: %d %q", tc.path, tc.query.Encode(), resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+	}
+	for _, tr := range tracks {
+		var lyrics Lyrics
+		if !slices.ContainsFunc(c.item(tr.Id).MediaSources[0].MediaStreams, func(s MediaStream) bool { return s.Type == "Lyric" }) {
+			c.expect(http.MethodGet, "/Audio/"+tr.Id+"/Lyrics", nil, nil, http.StatusNotFound, nil)
+			continue
+		}
+		c.expect(http.MethodGet, "/Audio/"+tr.Id+"/Lyrics", nil, nil, http.StatusOK, &lyrics)
+		if !lyrics.Metadata.IsSynced || len(lyrics.Lyrics) == 0 || !slices.IsSortedFunc(lyrics.Lyrics, func(a, b LyricLine) int {
+			return cmp.Compare(*a.Start, *b.Start)
+		}) {
+			t.Errorf("%s lyrics: %+v", tr.Name, lyrics)
 		}
 	}
 	universal := c.base + "/Audio/" + track.Id + "/universal?" + url.Values{

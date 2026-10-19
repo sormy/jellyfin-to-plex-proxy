@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/url"
@@ -13,6 +14,9 @@ import (
 )
 
 const plexLibraryIdentifier = "com.plexapp.plugins.library"
+
+// maxTextBytes bounds a text file read whole: lyrics run to kilobytes.
+const maxTextBytes = 1 << 20
 
 type PlexTag struct {
 	ID  int    `json:"id"`
@@ -227,6 +231,17 @@ func (p *Plex) call(method, path string, query url.Values, header http.Header) e
 		return err
 	}
 	return resp.Body.Close()
+}
+
+// Text reads a small file Plex serves as is, such as lyrics.
+func (p *Plex) Text(path string) (string, error) {
+	resp, err := p.send(http.MethodGet, path, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTextBytes))
+	return string(body), err
 }
 
 func (p *Plex) Identity() (PlexContainer, error) {
