@@ -150,6 +150,7 @@ type Item struct {
 	ParentId                 string            `json:"ParentId,omitempty"`
 	IsFolder                 bool              `json:"IsFolder"`
 	MediaType                string            `json:"MediaType,omitempty"`
+	PlaylistItemId           string            `json:"PlaylistItemId,omitempty"`
 	CollectionType           string            `json:"CollectionType,omitempty"`
 	LocationType             string            `json:"LocationType,omitempty"`
 	Overview                 string            `json:"Overview,omitempty"`

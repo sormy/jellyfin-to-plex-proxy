@@ -108,6 +108,7 @@ type PlexMetadata struct {
 	Composite             string      `json:"composite"`
 	PlaylistType          string      `json:"playlistType"`
 	Smart                 bool        `json:"smart"`
+	PlaylistItemID        int         `json:"playlistItemID"`
 	Thumb                 string      `json:"thumb"`
 	Art                   string      `json:"art"`
 	GrandparentThumb      string      `json:"grandparentThumb"`
@@ -208,7 +209,11 @@ func (p *Plex) send(method, path string, query url.Values, header http.Header) (
 }
 
 func (p *Plex) get(path string, query url.Values, header http.Header) (PlexContainer, error) {
-	resp, err := p.send(http.MethodGet, path, query, header)
+	return p.fetch(http.MethodGet, path, query, header)
+}
+
+func (p *Plex) fetch(method, path string, query url.Values, header http.Header) (PlexContainer, error) {
+	resp, err := p.send(method, path, query, header)
 	if err != nil {
 		return PlexContainer{}, err
 	}
@@ -353,6 +358,39 @@ func (p *Plex) Playlist(ratingKey string) (PlexMetadata, error) {
 func (p *Plex) PlaylistItems(ratingKey string) ([]PlexMetadata, error) {
 	c, err := p.get("/playlists/"+ratingKey+"/items", nil, Page{Size: allItems}.header())
 	return c.Metadata, err
+}
+
+// ItemsURI names library items as Plex's playlist calls take them.
+func ItemsURI(machineID string, ratingKeys []string) string {
+	return "server://" + machineID + "/" + plexLibraryIdentifier + "/library/metadata/" + strings.Join(ratingKeys, ",")
+}
+
+// CreatePlaylist refuses an empty playlist, as Plex does.
+func (p *Plex) CreatePlaylist(title, playlistType, itemsURI string) (string, error) {
+	c, err := p.fetch(http.MethodPost, "/playlists", url.Values{
+		"title": {title}, "type": {playlistType}, "smart": {"0"}, "uri": {itemsURI},
+	}, nil)
+	if err != nil || len(c.Metadata) == 0 {
+		return "", cmp.Or(err, errNotFound)
+	}
+	return c.Metadata[0].RatingKey, nil
+}
+
+// AddToPlaylist appends in order, skipping items the playlist holds.
+func (p *Plex) AddToPlaylist(ratingKey, itemsURI string) error {
+	return p.call(http.MethodPut, "/playlists/"+ratingKey+"/items", url.Values{"uri": {itemsURI}}, nil)
+}
+
+func (p *Plex) RemoveFromPlaylist(ratingKey string, playlistItemID int) error {
+	return p.call(http.MethodDelete, "/playlists/"+ratingKey+"/items/"+strconv.Itoa(playlistItemID), nil, nil)
+}
+
+func (p *Plex) ClearPlaylist(ratingKey string) error {
+	return p.call(http.MethodDelete, "/playlists/"+ratingKey+"/items", nil, nil)
+}
+
+func (p *Plex) RenamePlaylist(ratingKey, title string) error {
+	return p.call(http.MethodPut, "/playlists/"+ratingKey, url.Values{"title": {title}}, nil)
 }
 
 // SectionValues lists the values a section's items of one Plex type hold

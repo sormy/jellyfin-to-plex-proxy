@@ -16,17 +16,22 @@ import (
 )
 
 const (
-	fakePlexToken       = "fake-plex-token"
-	fakeEpisodeMs       = 660_000
-	fakeMovieMs         = 5_400_000
-	fakeMovieCount      = 7
-	fakeScrobbleAt      = 0.9
-	fakeMovieSection    = "1"
-	fakeShowSection     = "2"
-	fakeMusicSection    = "3"
-	fakeSeriesKey       = "200"
-	fakeCollectionKey   = "150"
-	fakePlaylistKey     = "500"
+	fakePlexToken     = "fake-plex-token"
+	fakeEpisodeMs     = 660_000
+	fakeMovieMs       = 5_400_000
+	fakeMovieCount    = 7
+	fakeScrobbleAt    = 0.9
+	fakeMovieSection  = "1"
+	fakeShowSection   = "2"
+	fakeMusicSection  = "3"
+	fakeSeriesKey     = "200"
+	fakeCollectionKey = "150"
+	fakePlaylistKey   = "500"
+	// fakeCreatedPlaylistKey starts the keys of playlists made in a test.
+	fakeCreatedPlaylistKey = 600
+	// fakeEntryOffset makes a track's playlist entry id, unique as Plex
+	// holds a track once per playlist.
+	fakeEntryOffset     = 100_000
 	fakePartFileSize    = 4096
 	fakeSubtitleContent = "1\n00:00:01,000 --> 00:00:02,000\nhello\n"
 	fakeLyricsTrackKey  = 402
@@ -170,7 +175,7 @@ func (p *fakePlex) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (p *fakePlex) routes() {
 	p.mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		p.write(w, PlexContainer{MachineIdentifier: strings.Repeat("ab", 20), FriendlyName: "Fake Plex", Version: "1.42"})
+		p.write(w, PlexContainer{MachineIdentifier: fakeMachineID, FriendlyName: "Fake Plex", Version: "1.42"})
 	})
 	p.mux.HandleFunc("GET /library/sections", func(w http.ResponseWriter, r *http.Request) {
 		p.write(w, PlexContainer{Directory: []PlexDirectory{
@@ -203,9 +208,47 @@ func (p *fakePlex) routes() {
 	p.mux.HandleFunc("GET /playlists/{key}/items", func(w http.ResponseWriter, r *http.Request) {
 		var items []PlexMetadata
 		for _, key := range p.members[r.PathValue("key")] {
-			items = append(items, withoutStreams(p.view(p.items[key])))
+			item := withoutStreams(p.view(p.items[key]))
+			item.PlaylistItemID = fakeEntryID(key)
+			items = append(items, item)
 		}
 		p.write(w, PlexContainer{Metadata: items})
+	})
+	p.mux.HandleFunc("POST /playlists", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		keys, ok := p.itemsOf(q.Get("uri"))
+		if !ok || q.Get("smart") != "0" || q.Get("title") == "" {
+			http.Error(w, "bad playlist", http.StatusBadRequest)
+			return
+		}
+		key := strconv.Itoa(fakeCreatedPlaylistKey + len(p.order))
+		p.add(PlexMetadata{RatingKey: key, Type: "playlist", Title: q.Get("title"), PlaylistType: q.Get("type")})
+		p.setMembers(key, keys)
+		p.write(w, PlexContainer{Metadata: []PlexMetadata{p.view(p.items[key])}})
+	})
+	p.mux.HandleFunc("PUT /playlists/{key}", func(w http.ResponseWriter, r *http.Request) {
+		p.items[r.PathValue("key")].Title = r.URL.Query().Get("title")
+	})
+	p.mux.HandleFunc("PUT /playlists/{key}/items", func(w http.ResponseWriter, r *http.Request) {
+		keys, ok := p.itemsOf(r.URL.Query().Get("uri"))
+		if !ok {
+			http.Error(w, "bad uri", http.StatusBadRequest)
+			return
+		}
+		key := r.PathValue("key")
+		p.setMembers(key, append(slices.Clone(p.members[key]), keys...))
+	})
+	p.mux.HandleFunc("DELETE /playlists/{key}/items", func(w http.ResponseWriter, r *http.Request) {
+		p.setMembers(r.PathValue("key"), nil)
+	})
+	p.mux.HandleFunc("DELETE /playlists/{key}/items/{entry}", func(w http.ResponseWriter, r *http.Request) {
+		key := r.PathValue("key")
+		i := slices.IndexFunc(p.members[key], func(member string) bool { return strconv.Itoa(fakeEntryID(member)) == r.PathValue("entry") })
+		if i < 0 {
+			http.NotFound(w, r)
+			return
+		}
+		p.setMembers(key, slices.Delete(slices.Clone(p.members[key]), i, i+1))
 	})
 	// Plex lists the values a section's items hold for each field it filters by.
 	p.mux.HandleFunc("GET /library/sections/{section}/{field}", func(w http.ResponseWriter, r *http.Request) {
@@ -584,4 +627,30 @@ func fakeTrackStreams(key int) []PlexStream {
 		streams = append(streams, PlexStream{ID: fakeLyricsStreamID, StreamType: lyricStreamType, Key: fmt.Sprintf("/library/streams/%d", fakeLyricsStreamID), Codec: "lrc"})
 	}
 	return streams
+}
+
+var fakeMachineID = strings.Repeat("ab", 20)
+
+func fakeEntryID(ratingKey string) int {
+	n, _ := strconv.Atoi(ratingKey)
+	return fakeEntryOffset + n
+}
+
+// itemsOf reads the library items a playlist call names, all of which must exist.
+func (p *fakePlex) itemsOf(uri string) ([]string, bool) {
+	rest, ok := strings.CutPrefix(uri, ItemsURI(fakeMachineID, nil))
+	keys := strings.Split(rest, ",")
+	return keys, ok && !slices.ContainsFunc(keys, func(key string) bool { return p.items[key] == nil })
+}
+
+// setMembers keeps each track once, as Plex does, and counts them.
+func (p *fakePlex) setMembers(key string, keys []string) {
+	var members []string
+	for _, k := range keys {
+		if !slices.Contains(members, k) {
+			members = append(members, k)
+		}
+	}
+	p.members[key] = members
+	p.items[key].LeafCount = len(members)
 }

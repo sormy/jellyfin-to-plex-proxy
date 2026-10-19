@@ -36,6 +36,7 @@ type Server struct {
 	plex       *Plex
 	config     Config
 	serverID   string
+	machineID  string
 	serverName string
 	mux        *http.ServeMux
 	logins     *LoginThrottle
@@ -50,6 +51,7 @@ func NewServer(plex *Plex, config Config) (*Server, error) {
 		plex:       plex,
 		config:     config,
 		serverID:   identity.MachineIdentifier[:idLength],
+		machineID:  identity.MachineIdentifier,
 		serverName: identity.FriendlyName,
 		mux:        http.NewServeMux(),
 		logins:     NewLoginThrottle(time.Now, config.MaxFailedLogins, config.LoginLockout),
@@ -227,6 +229,12 @@ func (s *Server) routes() {
 	s.private("POST /Sessions/Logout", noContent)
 	s.private("GET /Genres", s.genres)
 	s.private("GET /Playlists/{id}/Items", s.playlistItems)
+	s.private("POST /Playlists", s.createPlaylist)
+	s.private("GET /Playlists/{id}", s.playlist)
+	s.private("POST /Playlists/{id}", s.updatePlaylist)
+	s.private("POST /Playlists/{id}/Items", s.addToPlaylist)
+	s.private("DELETE /Playlists/{id}/Items", s.removeFromPlaylist)
+	s.private("GET /Playlists/{id}/Users/{userId}", s.playlistUser)
 	s.private("GET /Artists", s.artists)
 	s.private("GET /Artists/AlbumArtists", s.artists)
 	s.private("GET /Items/{id}/File", s.audioFile)

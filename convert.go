@@ -85,6 +85,9 @@ func ToItem(serverID string, m PlexMetadata) (Item, bool) {
 		RunTimeTicks:    m.Duration * ticksPerMillisecond,
 		UserData:        toUserData(m),
 	}
+	if m.PlaylistItemID != 0 {
+		item.PlaylistItemId = strconv.Itoa(m.PlaylistItemID)
+	}
 	if m.Tagline != "" {
 		item.Taglines = []string{m.Tagline}
 	}
