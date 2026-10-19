@@ -179,6 +179,7 @@ func (s *Server) routes() {
 	s.public("GET /Items/{id}/Images/{type}", s.image)
 	s.public("GET /Items/{id}/Images/{type}/{index}", s.image)
 	s.public("GET /Videos/{id}/{file}", s.stream)
+	s.public("GET /Videos/{id}/{source}/Subtitles/{index}/{file}", s.subtitle)
 	s.public("GET /Videos/{id}/{source}/Subtitles/{index}/{start}/{file}", s.subtitle)
 
 	s.private("GET /Users/Me", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.user()) })

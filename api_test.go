@@ -560,10 +560,13 @@ func TestPlayback(t *testing.T) {
 		if !stream.IsExternal {
 			continue
 		}
-		resp := bare.do(http.MethodGet, stream.DeliveryUrl, nil, nil)
-		resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			t.Errorf("subtitle %s: status %d", stream.DeliveryUrl, resp.StatusCode)
+		withoutStart := fmt.Sprintf("/Videos/%s/%s/Subtitles/%d/Stream.%s", episode.Id, source.Id, stream.Index, stream.Codec)
+		for _, path := range []string{stream.DeliveryUrl, withoutStart} {
+			resp := bare.do(http.MethodGet, path, nil, nil)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("subtitle %s: status %d", path, resp.StatusCode)
+			}
 		}
 	}
 }
