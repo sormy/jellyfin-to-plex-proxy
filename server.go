@@ -139,7 +139,21 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	recorder := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	r.URL.Path = strings.ToLower(r.URL.Path)
 	s.mux.ServeHTTP(recorder, r)
-	log.Printf("%s: %s %s?%s %d", cmp.Or(ClientFields(r)["Client"], "-"), r.Method, r.URL.Path, r.URL.RawQuery, recorder.status)
+	log.Printf("%s: %s %s?%s %d", cmp.Or(ClientFields(r)["Client"], "-"), r.Method, r.URL.Path, redacted(r.URL.RawQuery), recorder.status)
+}
+
+// secretParams are the query keys that stand in for a token.
+var secretParams = map[string]bool{"api_key": true, "apikey": true, "x-emby-token": true, "playsessionid": true}
+
+// redacted masks secret values, so the journal holds no credentials.
+func redacted(rawQuery string) string {
+	pairs := strings.Split(rawQuery, "&")
+	for i, pair := range pairs {
+		if key, _, ok := strings.Cut(pair, "="); ok && secretParams[strings.ToLower(key)] {
+			pairs[i] = key + "=***"
+		}
+	}
+	return strings.Join(pairs, "&")
 }
 
 type statusRecorder struct {
