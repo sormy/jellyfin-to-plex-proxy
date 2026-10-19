@@ -241,6 +241,7 @@ func (s *Server) routes() {
 	} {
 		s.private(pattern, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, ItemsResult{Items: []Item{}}) })
 	}
+	s.private("GET /socket", s.socket)
 	s.private("GET /Items/Filters", s.filtersLegacy)
 	s.private("GET /Items/Filters2", s.filters)
 }
