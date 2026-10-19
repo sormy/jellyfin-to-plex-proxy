@@ -105,12 +105,44 @@ func (s *Server) artists(w http.ResponseWriter, r *http.Request) {
 
 // audioFile serves a track as stored, typed by its container.
 func (s *Server) audioFile(w http.ResponseWriter, r *http.Request) {
-	part, err := s.part(r.PathValue("id"), "")
+	part, err := s.part(r.PathValue("id"), query(r).Get("mediasourceid"))
 	if err != nil {
 		respond(w, "", err)
 		return
 	}
 	s.proxyAs(w, r, s.plex.URL(part.Key, nil), http.Header{}, audioContentTypes[part.Container])
+}
+
+// audioStream answers Jellyfin's stream and stream.{container}, as stored.
+func (s *Server) audioStream(w http.ResponseWriter, r *http.Request) {
+	if file := r.PathValue("file"); file != "stream" && !strings.HasPrefix(file, "stream.") {
+		http.NotFound(w, r)
+		return
+	}
+	s.audioFile(w, r)
+}
+
+// universalAudio plays a track as stored when the client lists its container,
+// else as AAC over HLS: the playlist's session paths resolve beside this one.
+func (s *Server) universalAudio(w http.ResponseWriter, r *http.Request) {
+	part, err := s.part(r.PathValue("id"), query(r).Get("mediasourceid"))
+	if err != nil {
+		respond(w, "", err)
+		return
+	}
+	if playsAsStored(query(r)["container"], part.Container) {
+		s.audioFile(w, r)
+		return
+	}
+	s.audioPlaylist(w, r)
+}
+
+// playsAsStored reads Jellyfin's `container|codec` list; an empty one takes any.
+func playsAsStored(accepted []string, container string) bool {
+	return len(accepted) == 0 || slices.ContainsFunc(accepted, func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "|")
+		return strings.EqualFold(name, container)
+	})
 }
 
 // audioPlaylist starts Plex converting a track to AAC over HLS. The playlist

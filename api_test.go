@@ -869,15 +869,36 @@ func TestMusic(t *testing.T) {
 		t.Errorf("playback info %+v", info)
 	}
 
-	req, _ := http.NewRequest(http.MethodGet, c.base+"/Items/"+track.Id+"/File?ApiKey="+c.token, nil)
-	req.Header.Set("Range", "bytes=0-15")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
+	for _, tc := range []struct {
+		path  string
+		query url.Values
+		want  int
+	}{
+		{"/Items/" + track.Id + "/File", url.Values{"ApiKey": {c.token}}, http.StatusPartialContent},
+		{"/Audio/" + track.Id + "/stream", url.Values{"api_key": {c.token}, "static": {"true"}, "mediaSourceId": {track.Id}}, http.StatusPartialContent},
+		{"/Audio/" + track.Id + "/stream.ogg", url.Values{"ApiKey": {c.token}, "static": {"true"}}, http.StatusPartialContent},
+		{"/Audio/" + track.Id + "/universal", url.Values{"api_key": {c.token}}, http.StatusPartialContent},
+		{"/Audio/" + track.Id + "/universal", url.Values{"api_key": {c.token}, "Container": {"mp3,OGG|vorbis"}}, http.StatusPartialContent},
+		{"/Audio/" + track.Id + "/stream", url.Values{"static": {"true"}}, http.StatusUnauthorized},
+		{"/Audio/" + track.Id + "/lyrics", url.Values{"api_key": {c.token}}, http.StatusNotFound},
+	} {
+		req, _ := http.NewRequest(http.MethodGet, c.base+tc.path+"?"+tc.query.Encode(), nil)
+		req.Header.Set("Range", "bytes=0-15")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.want ||
+			tc.want == http.StatusPartialContent && !strings.HasPrefix(resp.Header.Get("Content-Type"), "audio/") {
+			t.Errorf("%s?%s: %d %q", tc.path, tc.query.Encode(), resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusPartialContent || !strings.HasPrefix(resp.Header.Get("Content-Type"), "audio/") {
-		t.Errorf("file: %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
+	universal := c.base + "/Audio/" + track.Id + "/universal?" + url.Values{
+		"api_key": {c.token}, "Container": {"mp3,aac|aac"}, "TranscodingProtocol": {"hls"},
+	}.Encode()
+	if body := fetchWhenReady(t, firstEntry(t, firstEntry(t, universal))); len(body) == 0 {
+		t.Error("universal: empty first segment")
 	}
 
 	session := fmt.Sprintf("test%d", time.Now().UnixNano())

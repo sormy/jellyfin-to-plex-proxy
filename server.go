@@ -216,6 +216,8 @@ func (s *Server) routes() {
 	s.private("GET /Artists/AlbumArtists", s.artists)
 	s.private("GET /Items/{id}/File", s.audioFile)
 	s.private("GET /Audio/{id}/main.m3u8", s.audioPlaylist)
+	s.private("GET /Audio/{id}/universal", s.universalAudio)
+	s.private("GET /Audio/{id}/{file}", s.audioStream)
 	s.public("GET /Audio/{id}/session/{rest...}", s.audioSession)
 	s.private("POST /Sessions/Playing", s.reportPlayback(playbackStarted))
 	s.private("POST /Sessions/Playing/Progress", s.reportPlayback(playbackProgressed))
