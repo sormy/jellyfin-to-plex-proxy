@@ -226,6 +226,9 @@ func TestAuthentication(t *testing.T) {
 	anonymous.expect(http.MethodPost, "/Users/AuthenticateByName", nil,
 		AuthenticateByName{Username: cmp.Or(os.Getenv("JELLYFIN_USERNAME"), defaultUserName), Pw: "wrong"}, http.StatusUnauthorized, nil)
 	anonymous.expect(http.MethodGet, "/Users/Me", nil, nil, http.StatusUnauthorized, nil)
+	anonymous.expect(http.MethodGet, "/System/Info", nil, nil, http.StatusUnauthorized, nil)
+	// Kodi validates its token on this right after signing in.
+	c.expect(http.MethodGet, "/System/Info", nil, nil, http.StatusOK, nil)
 	var me User
 	c.expect(http.MethodGet, "/Users/Me", nil, nil, http.StatusOK, &me)
 	c.expect(http.MethodGet, "/UsErS/mE", nil, nil, http.StatusOK, nil)

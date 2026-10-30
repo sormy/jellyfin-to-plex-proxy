@@ -198,6 +198,7 @@ func (s *Server) routes() {
 	s.public("GET /Videos/{id}/{source}/Subtitles/{index}/{file}", s.subtitle)
 	s.public("GET /Videos/{id}/{source}/Subtitles/{index}/{start}/{file}", s.subtitle)
 
+	s.private("GET /System/Info", s.systemInfo)
 	s.private("GET /Users/Me", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.user()) })
 	s.private("GET /Users/{userId}", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.user()) })
 	s.private("DELETE /Auth/Keys/{token}", noContent)
